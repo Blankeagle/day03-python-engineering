@@ -1,6 +1,8 @@
 from day03_python_engineering.llm.ollama_client import OllamaClient
 from day03_python_engineering.tools.registry import ToolRegistry
+import logging
 
+logger = logging.getLogger(__name__)
 
 class Agent:
     def __init__(
@@ -65,11 +67,12 @@ class Agent:
                 except Exception as e:
                     result = f"工具执行失败: {str(e)}"
 
-                print(
-                    f"[Step {step + 1}] "
-                    f"工具: {tool_name}, "
-                    f"参数: {arguments}, "
-                    f"结果: {result}"
+                logger.info(
+                    "agent step=%s tool=%s arguments=%s result=%s",
+                    step + 1,
+                    tool_name,
+                    arguments,
+                    result,
                 )
 
                 self.messages.append(
