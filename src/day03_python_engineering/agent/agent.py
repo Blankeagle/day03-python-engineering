@@ -26,7 +26,7 @@ class Agent:
             }
         ]
 
-    def run(self, user_input: str) -> str:
+    async def run(self, user_input: str) -> str:        
         self.messages.append(
             {
                 "role": "user",
@@ -36,10 +36,10 @@ class Agent:
         self._trim_messages()
 
         for step in range(self.max_steps):
-            response = self.client.chat(
+            response = await self.client.chat(
                 messages=self.messages,
                 tools=self.tools,
-            )
+                )
 
             message = response["message"]
 

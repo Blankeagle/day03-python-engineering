@@ -1,3 +1,5 @@
+import asyncio
+
 from day03_python_engineering.agent.agent import Agent
 from day03_python_engineering.llm.ollama_client import OllamaClient
 from day03_python_engineering.tools.registry import ToolRegistry
@@ -58,12 +60,19 @@ agent = Agent(
     max_messages=20,
 )
 
-while True:
-    user_input = input("You: ")
 
-    if user_input.lower() in ["exit", "quit"]:
-        break
 
-    answer = agent.run(user_input)
+async def main():
+    while True:
+        user_input = input("You: ")
 
-    print("AI:", answer)
+        if user_input.lower() in ["exit", "quit"]:
+            break
+
+        answer = await agent.run(user_input)
+
+        print("AI:", answer)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
