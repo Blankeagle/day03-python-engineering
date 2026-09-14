@@ -6,9 +6,17 @@ from day03_python_engineering.api.dependencies import (
     get_session_manager,
 )
 from day03_python_engineering.session.manager import SessionManager
-
-
+from day03_python_engineering.api.dependencies import get_rag_service
+from day03_python_engineering.rag.result import RAGResponse
+from day03_python_engineering.rag.service import RAGService
 router = APIRouter()
+
+
+class RAGQueryRequest(BaseModel):
+    question: str = Field(
+        min_length=1,
+        max_length=2000,
+    )
 
 
 class ChatRequest(BaseModel):
@@ -69,3 +77,17 @@ async def delete_session(
 @router.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@router.post(
+    "/rag/query",
+    response_model=RAGResponse,
+)
+async def rag_query(
+    request: RAGQueryRequest,
+    rag_service: RAGService = Depends(get_rag_service),
+) -> RAGResponse:
+    return await rag_service.answer(
+        question=request.question,
+        top_k=3,
+    )

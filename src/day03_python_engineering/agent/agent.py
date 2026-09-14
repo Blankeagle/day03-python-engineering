@@ -1,6 +1,11 @@
 from day03_python_engineering.llm.ollama_client import OllamaClient
 from day03_python_engineering.tools.registry import ToolRegistry
 import logging
+import json
+from uuid import uuid4
+
+from day03_python_engineering.request_context import request_id_var
+from day03_python_engineering.tools.result import ToolErrorCode, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -9,13 +14,13 @@ class Agent:
         self,
         client: OllamaClient,
         registry: ToolRegistry,
-        tools: list[dict],
+        tool_groups: set[str] | None = None,
         max_steps: int = 10,
         max_messages: int = 20,
     ):
         self.client = client
         self.registry = registry
-        self.tools = tools
+        self.tool_groups = set(tool_groups) if tool_groups is not None else None
         self.max_steps = max_steps
         self.max_messages = max_messages
 
@@ -26,7 +31,18 @@ class Agent:
             }
         ]
 
-    async def run(self, user_input: str) -> str:        
+    async def run(self, user_input: str) -> str:
+        token = None
+        if request_id_var.get() is None:
+            token = request_id_var.set(uuid4().hex)
+
+        try:
+            return await self._run(user_input)
+        finally:
+            if token is not None:
+                request_id_var.reset(token)
+
+    async def _run(self, user_input: str) -> str:
         self.messages.append(
             {
                 "role": "user",
@@ -38,7 +54,7 @@ class Agent:
         for step in range(self.max_steps):
             response = await self.client.chat(
                 messages=self.messages,
-                tools=self.tools,
+                tools=self.registry.get_tool_schemas(groups=self.tool_groups),
                 )
 
             message = response["message"]
@@ -59,13 +75,19 @@ class Agent:
                 )
 
                 try:
-                    result = self.registry.execute(
+                    result = await self.registry.execute(
                         tool_name,
                         arguments,
+                        groups=self.tool_groups,
                     )
 
-                except Exception as e:
-                    result = f"工具执行失败: {str(e)}"
+                except Exception:
+                    logger.exception("tool %s failed outside registry", tool_name)
+                    result = ToolResult(
+                        success=False,
+                        error=ToolErrorCode.TOOL_EXECUTION_ERROR,
+                        message="Tool execution failed.",
+                    )
 
                 logger.info(
                     "agent step=%s tool=%s arguments=%s result=%s",
@@ -78,7 +100,8 @@ class Agent:
                 self.messages.append(
                     {
                         "role": "tool",
-                        "content": str(result),
+                        "name": tool_name,
+                        "content": result.model_dump_json()
                     }
                 )
 

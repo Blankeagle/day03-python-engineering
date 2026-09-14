@@ -1,0 +1,7 @@
+Employees receive 15 days of annual leave every year.
+
+Employees usually work from 9 AM to 5 PM.
+
+The company uses PostgreSQL as its main database.
+
+Sick leave is handled separately from annual leave.

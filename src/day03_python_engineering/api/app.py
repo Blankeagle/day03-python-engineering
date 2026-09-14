@@ -1,35 +1,36 @@
-from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
-from day03_python_engineering.api.dependencies import (
-    close_dependencies,
-    create_agent,
-    get_session_manager,
-)
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
+from pydantic.v1 import Field
+from pydantic.v1 import BaseModel
+from fastapi import Depends
+
+from day03_python_engineering.rag.result import RAGResponse
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from day03_python_engineering.api.dependencies import close_dependencies
+from day03_python_engineering.api.dependencies import close_dependencies, initialize_rag
 from day03_python_engineering.api.routes import router
 from day03_python_engineering.exceptions import (
     OllamaServiceError,
     OllamaTimeoutError,
 )
 from day03_python_engineering.logging_config import setup_logging
-
+from day03_python_engineering.request_context import request_id_var
+from day03_python_engineering.api.dependencies import get_rag_service
+from day03_python_engineering.rag.service import RAGService
 
 logger = logging.getLogger(__name__)
 
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await initialize_rag()
+
+
     yield
     await close_dependencies()
 
@@ -68,6 +69,7 @@ async def unknown_exception_handler(request: Request, exc: Exception):
     return _error_response(500, "INTERNAL_ERROR", "Internal server error")
 
 
+
 def create_app() -> FastAPI:
     setup_logging()
 
@@ -83,5 +85,22 @@ def create_app() -> FastAPI:
     app.add_exception_handler(Exception, unknown_exception_handler)
     return app
 
-
 app = create_app()
+
+
+@app.middleware("http")
+async def add_request_id(
+    request: Request,
+    call_next,
+):
+    request_id = uuid.uuid4().hex
+    token = request_id_var.set(request_id)
+
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        request_id_var.reset(token)
+
+

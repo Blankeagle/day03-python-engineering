@@ -1,77 +1,74 @@
 import asyncio
+from pathlib import Path
 
-from day03_python_engineering.agent.agent import Agent
 from day03_python_engineering.llm.ollama_client import OllamaClient
-from day03_python_engineering.tools.registry import ToolRegistry
-from day03_python_engineering.tools.time_tool import get_current_time
-from day03_python_engineering.tools.weather_tool import get_weather
-
-
-client = OllamaClient()
-
-registry = ToolRegistry()
-
-registry.register(
-    "get_current_time",
-    get_current_time,
-)
-
-registry.register(
-    "get_weather",
-    get_weather,
-)
-
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_current_time",
-            "description": "获取当前时间",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "获取指定城市的天气",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "city": {
-                        "type": "string",
-                        "description": "城市名称",
-                    }
-                },
-                "required": ["city"],
-            },
-        },
-    },
-]
-
-agent = Agent(
-    client=client,
-    registry=registry,
-    tools=tools,
-    max_steps=10,
-    max_messages=20,
-)
-
+from day03_python_engineering.rag.embedding_client import EmbeddingClient
+from day03_python_engineering.rag.indexer import DocumentIndexer
+from day03_python_engineering.rag.retriever import Retriever
+from day03_python_engineering.rag.service import RAGService
+from day03_python_engineering.rag.text_splitter import TextSplitter
+from src.day03_python_engineering.rag.chroma_store import ChromaVectorStore
 
 
 async def main():
-    while True:
-        user_input = input("You: ")
+    embedding_client = EmbeddingClient()
+    llm_client = OllamaClient()
 
-        if user_input.lower() in ["exit", "quit"]:
-            break
+    store = ChromaVectorStore(
+        path="data/chroma_db",
+        collection_name="documents",
+    )
+    splitter = TextSplitter(
+        chunk_size=200,
+        chunk_overlap=50,
+    )
 
-        answer = await agent.run(user_input)
+    indexer = DocumentIndexer(
+        embedding_client=embedding_client,
+        splitter=splitter,
+        store=store,
+    )
 
-        print("AI:", answer)
+    retriever = Retriever(
+        embedding_client=embedding_client,
+        store=store,
+    )
+
+    rag_service = RAGService(
+        retriever=retriever,
+        llm_client=llm_client,
+    )
+
+    try:
+        await indexer.index_directory(
+            Path("data")
+        )
+
+        question = (
+            "How many vacation days do employees get?"
+        )
+
+        result = await rag_service.answer(
+            question=question,
+            top_k=3,
+        )
+
+        print("Question:")
+        print(question)
+
+        print("\nAnswer:")
+        print(result.answer)
+
+        print("\nSources:")
+        for source in result.sources:
+            print(
+                f"- {source.source} "
+                f"(chunk {source.chunk_id})"
+            )
+
+    finally:
+        await embedding_client.close()
+        await llm_client.close()
 
 
 if __name__ == "__main__":
