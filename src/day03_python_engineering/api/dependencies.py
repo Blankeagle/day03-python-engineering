@@ -28,6 +28,13 @@ from day03_python_engineering.rag.indexer import DocumentIndexer
 from day03_python_engineering.rag.text_splitter import TextSplitter
 from src.day03_python_engineering.tools.rag_tool import RAGQueryInput, search_knowledge_base
 
+from day03_python_engineering.memory.redis_store import RedisMemoryStore
+from day03_python_engineering.memory.extractor import MemoryExtractor
+from day03_python_engineering.memory.service import MemoryService
+
+
+
+
 _redis_store = RedisSessionStore()
 
 _session_manager = SessionManager(
@@ -116,6 +123,21 @@ _indexer = DocumentIndexer(
 )
 
 
+_memory_store = RedisMemoryStore()
+
+_memory_extractor = MemoryExtractor(
+    llm_client=_ollama_client,
+)
+
+_memory_service = MemoryService(
+    store=_memory_store,
+    extractor=_memory_extractor,
+)
+
+
+def get_memory_service() -> MemoryService:
+    return _memory_service
+
 async def initialize_rag():
     await _indexer.index_directory(
         Path("data")
@@ -137,3 +159,4 @@ async def close_dependencies():
     await _ollama_client.close()
     await _weather_client.aclose()
     await _redis_store.close()
+    await _memory_store.close()

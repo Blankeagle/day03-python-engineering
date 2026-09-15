@@ -6,9 +6,13 @@ from day03_python_engineering.api.dependencies import (
     get_session_manager,
 )
 from day03_python_engineering.session.manager import SessionManager
-from day03_python_engineering.api.dependencies import get_rag_service
+from day03_python_engineering.api.dependencies import (
+    get_rag_service ,
+    get_memory_service
+    )
 from day03_python_engineering.rag.result import RAGResponse
 from day03_python_engineering.rag.service import RAGService
+from src.day03_python_engineering.memory.service import MemoryService
 router = APIRouter()
 
 
@@ -20,9 +24,20 @@ class RAGQueryRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    session_id: str = Field(min_length=1, max_length=100, description="会话 ID")
-    message: str = Field(min_length=1, max_length=2000, description="用户输入内容")
+    user_id: str = Field(
+        min_length=1,
+        max_length=100,
+    )
 
+    session_id: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    message: str = Field(
+        min_length=1,
+        max_length=2000,
+    )
 
 class ChatData(BaseModel):
     answer: str
@@ -42,6 +57,8 @@ def root():
 async def chat(
     request: ChatRequest,
     session_manager: SessionManager = Depends(get_session_manager),
+    memory_service: MemoryService = Depends(get_memory_service),
+
 ):
     async with session_manager.lock(request.session_id):
         agent = session_manager.get(request.session_id)
@@ -52,8 +69,21 @@ async def chat(
             if messages is not None:
                 agent.messages = messages
 
+        # set long term memory for the agent
+        memory = await memory_service.get_memory(request.user_id)
+        memory_prompt = memory.to_prompt()
+        agent.set_user_memory(memory_prompt)
+
         answer = await agent.run(request.message)
+        
+        # save the updated agent state and messages
         await session_manager.set(request.session_id, agent)
+
+        # update long term memory based on the user input
+        await memory_service.process_message(
+            user_id=request.user_id,
+            message=request.message,
+        )
 
     return ChatResponse(
         success=True,

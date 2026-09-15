@@ -10,3 +10,7 @@ wheels/
 .venv
 .env
 *.pyc
+
+
+# Chroma local vector database
+data/chroma_db/

@@ -23,11 +23,16 @@ class Agent:
         self.tool_groups = set(tool_groups) if tool_groups is not None else None
         self.max_steps = max_steps
         self.max_messages = max_messages
+    
+
+        self.base_system_prompt = (
+            "You are a helpful AI assistant."
+        )
 
         self.messages = [
             {
                 "role": "system",
-                "content": "你是一个有帮助的 AI 助手。",
+                "content": self.base_system_prompt,
             }
         ]
 
@@ -119,3 +124,21 @@ class Agent:
             system_message,
             *recent_messages,
         ]
+
+    def set_user_memory(
+        self,
+        memory_prompt: str,
+    ) -> None:
+        content = self.base_system_prompt
+
+        if memory_prompt:
+            content += (
+                "\n\nLong-term information about the user:\n"
+                f"{memory_prompt}\n\n"
+                "Use the long-term user information above when the user "
+                "asks about themselves. "
+                "Do not search the knowledge base for information that is "
+                "already available in the user's long-term memory."
+            )
+
+        self.messages[0]["content"] = content
