@@ -76,7 +76,7 @@ async def chat(
 
         answer = await agent.run(request.message)
         
-        # save the updated agent state and messages
+        # save the session history after processing the message
         await session_manager.set(request.session_id, agent)
 
         # update long term memory based on the user input

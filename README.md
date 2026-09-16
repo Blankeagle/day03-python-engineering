@@ -35,29 +35,124 @@
 - Redis persistence
 - Long-term memory and RAG separation
 
+
+Before
+
+Agent.run()
+├── LLM
+├── Tool detection
+├── Tool execution
+├── Loop
+├── max_steps
+└── Return
+
+
+After
+
+Agent
+  ↓
+AgentWorkflow
+  ↓
+AgentState
+  │
+  ├── messages
+  ├── tool_calls
+  └── step
+  ↓
+LLMNode
+  ↓
+tool_calls?
+ ├── No  → END
+ └── Yes → ToolNode
+              ↓
+          ToolRegistry
+              ↓
+           LLMNode
 ## Architecture
 
-```text
-                         User
-                           |
-                       FastAPI
-                           |
-                         Agent
-                 __________|__________
-                |          |          |
-                v          v          v
-         Conversation   Long-term    Tools
-           Memory        Memory
-              |             |          |
-            Redis         Redis        |
-                                      |
-                         ______________|______________
-                        |              |              |
-                        v              v              v
-                      RAG          Weather Tool    Time Tool
-                       |
-                   Retriever
-                       |
-                    Chroma
-                       |
-                  Documents
+```mermaid
+flowchart TB
+    User["User / API Client"]
+    API["FastAPI<br/>/chat"]
+
+    subgraph AgentSystem["Agent System"]
+        Agent["Agent<br/>High-level interface"]
+
+        subgraph Workflow["AgentWorkflow"]
+            State["AgentState<br/>messages<br/>tool_calls<br/>step"]
+
+            LLMNode["LLMNode"]
+            Decision{"Tool calls?"}
+            ToolNode["ToolNode"]
+            End["END"]
+
+            LLMNode --> Decision
+            Decision -->|Yes| ToolNode
+            ToolNode --> LLMNode
+            Decision -->|No| End
+
+            State <--> LLMNode
+            State <--> ToolNode
+        end
+
+        Agent --> Workflow
+    end
+
+    subgraph ToolSystem["Tool System"]
+        Registry["ToolRegistry<br/>validation<br/>timeout<br/>retry"]
+        Time["get_current_time"]
+        Weather["get_weather"]
+        RAGTool["search_knowledge_base"]
+
+        Registry --> Time
+        Registry --> Weather
+        Registry --> RAGTool
+    end
+
+    subgraph RAG["RAG System"]
+        RAGService["RAGService"]
+        Retriever["Retriever"]
+        Embedding["EmbeddingClient"]
+        Chroma["Chroma<br/>Vector Database"]
+        Documents["Documents"]
+
+        RAGService --> Retriever
+        Retriever --> Embedding
+        Retriever --> Chroma
+        Documents --> Chroma
+    end
+
+    subgraph Memory["Long-term Memory"]
+        MemoryService["MemoryService"]
+        Extractor["MemoryExtractor"]
+        MemoryRedis["RedisMemoryStore"]
+
+        MemoryService --> Extractor
+        MemoryService --> MemoryRedis
+    end
+
+    subgraph Session["Session Memory"]
+        SessionManager["SessionManager"]
+        SessionRedis["RedisSessionStore"]
+
+        SessionManager --> SessionRedis
+    end
+
+    subgraph LLM["LLM"]
+        Ollama["OllamaClient"]
+        Model["Ollama Model"]
+
+        Ollama --> Model
+    end
+
+    User --> API
+    API --> Agent
+
+    Agent --> MemoryService
+    Agent --> SessionManager
+
+    LLMNode --> Ollama
+    ToolNode --> Registry
+
+    RAGTool --> RAGService
+```
