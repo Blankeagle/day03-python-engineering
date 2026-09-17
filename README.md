@@ -1,158 +1,91 @@
-## Current Features
+# Day 11 — LangGraph Workflow Migration
 
-### Agent
-- Async agent loop with Ollama
-- Tool calling
-- Tool registry with automatic JSON schema generation
-- Tool timeout and retry handling
-- Tool groups / capability control
+## Goal
 
-### Conversation Memory
-- Session-based conversation history
-- Redis persistence
-- Memory trimming
-- Session isolation
+The goal of Day 11 was to migrate the agent orchestration layer from a manually implemented workflow to LangGraph.
 
-### RAG
-- Document loading and chunking
-- Ollama embeddings with `nomic-embed-text`
-- Chroma persistent vector store
-- Cosine similarity search
-- Top-K retrieval
-- Score threshold filtering
-- Source metadata tracking
-- RAG service
-- RAG exposed as an Agent tool
+The existing components were kept unchanged:
 
-### Long-term Memory
-- User-based persistent memory
-- Separate `user_id` and `session_id`
-- Automatic memory extraction from user messages
-- Cross-session memory
-- Memory update and merge
-- Explicit memory forgetting
-- Per-user concurrency lock
-- Redis persistence
-- Long-term memory and RAG separation
+- OllamaClient
+- ToolRegistry
+- RAGService
+- ChromaVectorStore
+- Session Memory
+- Long-term User Memory
+- FastAPI API layer
 
+LangGraph is responsible only for controlling the agent workflow.
 
-Before
+---
 
-Agent.run()
-├── LLM
-├── Tool detection
-├── Tool execution
-├── Loop
-├── max_steps
-└── Return
-
-
-After
-
-Agent
-  ↓
-AgentWorkflow
-  ↓
-AgentState
-  │
-  ├── messages
-  ├── tool_calls
-  └── step
-  ↓
-LLMNode
-  ↓
-tool_calls?
- ├── No  → END
- └── Yes → ToolNode
-              ↓
-          ToolRegistry
-              ↓
-           LLMNode
 ## Architecture
 
-```mermaid
-flowchart TB
-    User["User / API Client"]
-    API["FastAPI<br/>/chat"]
+The current agent workflow is:
 
-    subgraph AgentSystem["Agent System"]
-        Agent["Agent<br/>High-level interface"]
+    User
+      |
+      v
+    FastAPI
+      |
+      v
+    Agent
+      |
+      v
+    LangGraph
+      |
+      v
+    START
+      |
+      v
+    LLM Node
+      |
+      v
+    Conditional Edge
+      |
+      +--------------------+
+      |                    |
+      | tool_calls         | no tool_calls
+      v                    v
+    Tool Node             END
+      |
+      v
+    ToolRegistry
+      |
+      +--> Time Tool
+      |
+      +--> Weather Tool
+      |
+      +--> RAG Tool
+             |
+             v
+          RAGService
+             |
+             v
+           Chroma
+      |
+      v
+    LLM Node
 
-        subgraph Workflow["AgentWorkflow"]
-            State["AgentState<br/>messages<br/>tool_calls<br/>step"]
+The main execution loop is:
 
-            LLMNode["LLMNode"]
-            Decision{"Tool calls?"}
-            ToolNode["ToolNode"]
-            End["END"]
+    LLM -> Tool -> LLM -> ... -> END
 
-            LLMNode --> Decision
-            Decision -->|Yes| ToolNode
-            ToolNode --> LLMNode
-            Decision -->|No| End
+---
 
-            State <--> LLMNode
-            State <--> ToolNode
-        end
+## 1. LangGraph State
 
-        Agent --> Workflow
-    end
+LangGraph uses a shared state that is passed between graph nodes.
 
-    subgraph ToolSystem["Tool System"]
-        Registry["ToolRegistry<br/>validation<br/>timeout<br/>retry"]
-        Time["get_current_time"]
-        Weather["get_weather"]
-        RAGTool["search_knowledge_base"]
+```python
+from typing import Any, TypedDict
 
-        Registry --> Time
-        Registry --> Weather
-        Registry --> RAGTool
-    end
 
-    subgraph RAG["RAG System"]
-        RAGService["RAGService"]
-        Retriever["Retriever"]
-        Embedding["EmbeddingClient"]
-        Chroma["Chroma<br/>Vector Database"]
-        Documents["Documents"]
+class LangGraphState(TypedDict):
+    # Store the conversation history shared across graph nodes
+    messages: list[dict[str, Any]]
 
-        RAGService --> Retriever
-        Retriever --> Embedding
-        Retriever --> Chroma
-        Documents --> Chroma
-    end
+    # Store tool calls requested by the latest LLM response
+    tool_calls: list[dict[str, Any]]
 
-    subgraph Memory["Long-term Memory"]
-        MemoryService["MemoryService"]
-        Extractor["MemoryExtractor"]
-        MemoryRedis["RedisMemoryStore"]
-
-        MemoryService --> Extractor
-        MemoryService --> MemoryRedis
-    end
-
-    subgraph Session["Session Memory"]
-        SessionManager["SessionManager"]
-        SessionRedis["RedisSessionStore"]
-
-        SessionManager --> SessionRedis
-    end
-
-    subgraph LLM["LLM"]
-        Ollama["OllamaClient"]
-        Model["Ollama Model"]
-
-        Ollama --> Model
-    end
-
-    User --> API
-    API --> Agent
-
-    Agent --> MemoryService
-    Agent --> SessionManager
-
-    LLMNode --> Ollama
-    ToolNode --> Registry
-
-    RAGTool --> RAGService
-```
+    # Track how many graph nodes have been executed
+    step: int

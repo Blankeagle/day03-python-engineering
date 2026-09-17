@@ -22,6 +22,8 @@ from day03_python_engineering.request_context import request_id_var
 from day03_python_engineering.api.dependencies import get_rag_service
 from day03_python_engineering.rag.service import RAGService
 
+from day03_python_engineering.exceptions import AgentWorkflowError
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,3 +106,20 @@ async def add_request_id(
         request_id_var.reset(token)
 
 
+
+@app.exception_handler(AgentWorkflowError)
+async def agent_workflow_error_handler(
+    request: Request,
+    exc: AgentWorkflowError,
+):
+    # Convert the agent workflow error into a stable API response
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": {
+                "code": "AGENT_WORKFLOW_ERROR",
+                "message": str(exc),
+            },
+        },
+    )

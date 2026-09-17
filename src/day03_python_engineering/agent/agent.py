@@ -7,9 +7,14 @@ from uuid import uuid4
 from day03_python_engineering.request_context import request_id_var
 from day03_python_engineering.tools.result import ToolErrorCode, ToolResult
 
-from day03_python_engineering.workflow.nodes import LLMNode, ToolNode
-from day03_python_engineering.workflow.workflow import AgentWorkflow
-from day03_python_engineering.workflow.state import AgentState
+from day03_python_engineering.workflow.langgraph_workflow import (
+    create_agent_graph,
+)
+
+from langgraph.errors import GraphRecursionError
+
+from day03_python_engineering.exceptions import AgentWorkflowError
+
 logger = logging.getLogger(__name__)
 
 class Agent:
@@ -39,24 +44,31 @@ class Agent:
             }
         ]
 
-        # Create the LLM execution node
-        self.llm_node = LLMNode(
+        # # Create the LLM execution node
+        # self.llm_node = LLMNode(
+        #     client=self.client,
+        #     registry=self.registry,
+        #     tool_groups=self.tool_groups,
+        # )
+
+        # # Create the tool execution node
+        # self.tool_node = ToolNode(
+        #     registry=self.registry,
+        #     tool_groups=self.tool_groups,
+        # )
+
+        # # Build the workflow that controls node execution
+        # self.workflow = AgentWorkflow(
+        #     llm_node=self.llm_node,
+        #     tool_node=self.tool_node,
+        #     max_steps=self.max_steps,
+        # )
+
+        # Build the LangGraph workflow
+        self.graph = create_agent_graph(
             client=self.client,
             registry=self.registry,
             tool_groups=self.tool_groups,
-        )
-
-        # Create the tool execution node
-        self.tool_node = ToolNode(
-            registry=self.registry,
-            tool_groups=self.tool_groups,
-        )
-
-        # Build the workflow that controls node execution
-        self.workflow = AgentWorkflow(
-            llm_node=self.llm_node,
-            tool_node=self.tool_node,
-            max_steps=self.max_steps,
         )
 
         
@@ -138,8 +150,7 @@ class Agent:
     #     return "Agent 超过最大执行步数，任务未完成。"
 
 
-
-    async def _run(self, user_message: str) -> str:
+    async def run(self, user_message: str) -> str:
         # Add the new user message to the conversation history
         self.messages.append(
             {
@@ -148,23 +159,35 @@ class Agent:
             }
         )
 
-        # Create the initial state for this workflow execution
-        state = AgentState(
-            messages=self.messages,
-        )
+        # Build the initial state for LangGraph
+        initial_state = {
+            "messages": self.messages,
+            "tool_calls": [],
+            "step": 0,
+        }
 
-        # Delegate the execution loop to the workflow
-        state = await self.workflow.run(state)
+        # Execute the graph with a recursion limit
+        try:
+            # Execute the graph with a recursion limit
+            final_state = await self.graph.ainvoke(
+                initial_state,
+                config={
+                    "recursion_limit": self.max_steps,
+                },
+            )
+        except GraphRecursionError as exc:
+            raise AgentWorkflowError(
+                "Agent workflow exceeded the maximum number of steps."
+            ) from exc
 
-        # Keep the updated conversation history in the agent
-        self.messages = state.messages
+        # Save the conversation history returned by the graph
+        self.messages = final_state["messages"]
 
-        # Trim old messages after the workflow has completed
+        # Trim old conversation messages
         self._trim_messages()
 
         # Return the final assistant response
         return self.messages[-1]["content"]
-
 
     def _trim_messages(self):
         if len(self.messages) <= self.max_messages + 1:
@@ -196,3 +219,34 @@ class Agent:
             )
 
         self.messages[0]["content"] = content
+
+
+    async def debug_stream(
+        self,
+        user_message: str,
+    ) -> None:
+        # Build an isolated message list for debugging
+        messages = [
+            *self.messages,
+            {
+                "role": "user",
+                "content": user_message,
+            },
+        ]
+
+        # Build the initial graph state
+        initial_state = {
+            "messages": messages,
+            "tool_calls": [],
+            "step": 0,
+        }
+
+        # Stream graph updates node by node
+        async for event in self.graph.astream(
+            initial_state,
+            config={
+                "recursion_limit": self.max_steps,
+            },
+            stream_mode="updates",
+        ):
+            print("GRAPH EVENT:", event)

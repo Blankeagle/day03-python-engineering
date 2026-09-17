@@ -4,3 +4,6 @@ class OllamaServiceError(Exception):
 
 class OllamaTimeoutError(Exception):
     pass
+
+class AgentWorkflowError(Exception):
+    """Raised when the agent workflow cannot complete normally."""
