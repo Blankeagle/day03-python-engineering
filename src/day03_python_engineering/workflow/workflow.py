@@ -17,16 +17,19 @@ class AgentWorkflow:
         self.max_steps = max_steps
 
     async def run(self, state: AgentState) -> AgentState:
-        # Continue running until the workflow reaches the step limit
+        # Continue until the workflow finishes or reaches the step limit
         while state.step < self.max_steps:
-            # The LLM node decides whether a tool is needed
+            # Let the LLM decide whether a tool is required
             state = await self.llm_node.run(state)
 
-            # Finish the workflow if the LLM does not request any tools
+            # Finish normally when no tool call is requested
             if not state.tool_calls:
-                return state 
+                return state
 
-            # Execute all tools requested by the LLM
+            # Execute the requested tools
             state = await self.tool_node.run(state)
 
-        return state
+        # Reaching this point means the workflow did not finish normally
+        raise WorkflowMaxStepsError(
+            f"Workflow exceeded max_steps={self.max_steps}"
+        )

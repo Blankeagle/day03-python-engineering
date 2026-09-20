@@ -25,13 +25,14 @@ class Agent:
         tool_groups: set[str] | None = None,
         max_steps: int = 10,
         max_messages: int = 20,
+        graph_recursion_limit: int = 30,
     ):
         self.client = client
         self.registry = registry
         self.tool_groups = set(tool_groups) if tool_groups is not None else None
         self.max_steps = max_steps
         self.max_messages = max_messages
-    
+        self.graph_recursion_limit = graph_recursion_limit
 
         self.base_system_prompt = (
             "You are a helpful AI assistant."
@@ -150,7 +151,7 @@ class Agent:
     #     return "Agent 超过最大执行步数，任务未完成。"
 
 
-    async def run(self, user_message: str) -> str:
+    async def _run(self, user_message: str) -> str:
         # Add the new user message to the conversation history
         self.messages.append(
             {
@@ -161,20 +162,27 @@ class Agent:
 
         # Build the initial state for LangGraph
         initial_state = {
+            # Start with the current conversation history
             "messages": self.messages,
             "tool_calls": [],
+            "plan": [],
+            "current_step": 0,
+
+            # Store completed plan step results
+            "step_results": [],
+
             "step": 0,
         }
-
         # Execute the graph with a recursion limit
         try:
             # Execute the graph with a recursion limit
             final_state = await self.graph.ainvoke(
-                initial_state,
-                config={
-                    "recursion_limit": self.max_steps,
-                },
-            )
+            initial_state,
+            config={
+                # Limit the total number of graph node executions
+                "recursion_limit": self.graph_recursion_limit,
+            },
+        )
         except GraphRecursionError as exc:
             raise AgentWorkflowError(
                 "Agent workflow exceeded the maximum number of steps."
@@ -236,8 +244,14 @@ class Agent:
 
         # Build the initial graph state
         initial_state = {
-            "messages": messages,
+            "messages": self.messages,
             "tool_calls": [],
+            "plan": [],
+            "current_step": 0,
+
+            # Store completed plan step results
+            "step_results": [],
+
             "step": 0,
         }
 
@@ -245,7 +259,7 @@ class Agent:
         async for event in self.graph.astream(
             initial_state,
             config={
-                "recursion_limit": self.max_steps,
+                "recursion_limit": self.graph_recursion_limit,
             },
             stream_mode="updates",
         ):

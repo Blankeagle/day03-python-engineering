@@ -75,14 +75,14 @@ async def chat(
         agent.set_user_memory(memory_prompt)
 
         # Temporarily inspect LangGraph node-by-node execution
-        await agent.debug_stream(
-            request.message
-        )
+        # await agent.debug_stream(
+        #     request.message
+        # )
 
         answer = await agent.run(request.message)
         
         # save the session history after processing the message
-       # await session_manager.set(request.session_id, agent)
+        await session_manager.set(request.session_id, agent)
 
         # update long term memory based on the user input
         await memory_service.process_message(
