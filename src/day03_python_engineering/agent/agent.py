@@ -162,14 +162,18 @@ class Agent:
 
         # Build the initial state for LangGraph
         initial_state = {
-            # Start with the current conversation history
             "messages": self.messages,
             "tool_calls": [],
             "plan": [],
             "current_step": 0,
-
-            # Store completed plan step results
             "step_results": [],
+
+            # No step has been reviewed yet
+            "step_success": True,
+
+            # No review feedback exists at startup
+            "review_feedback": "",
+           "replan_count": 0,
 
             "step": 0,
         }
@@ -248,6 +252,7 @@ class Agent:
             "tool_calls": [],
             "plan": [],
             "current_step": 0,
+            "replan_count": 0,
 
             # Store completed plan step results
             "step_results": [],

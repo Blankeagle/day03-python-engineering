@@ -7,6 +7,8 @@ from day03_python_engineering.workflow.langgraph_nodes import (
     create_executor_node,
     create_final_node,
     create_planner_node,
+    create_replanner_node,
+    create_reviewer_node,
     create_tool_node,
 )
 from day03_python_engineering.workflow.langgraph_state import LangGraphState
@@ -56,9 +58,21 @@ def create_agent_graph(
         tool_groups=tool_groups,
     )
 
+    reviewer_node = create_reviewer_node(
+        client=client,
+    )
+
+    replanner_node = create_replanner_node(
+        client=client,
+        registry=registry,
+        tool_groups=tool_groups,
+    )
+
     final_node = create_final_node(
         client=client,
     )
+
+
 
     # Register workflow nodes
     graph.add_node("planner", planner_node)
@@ -66,6 +80,8 @@ def create_agent_graph(
     graph.add_node("tool", tool_node)
     graph.add_node("advance", advance_plan_node)
     graph.add_node("final", final_node)
+    graph.add_node("reviewer", reviewer_node)
+    graph.add_node("replanner", replanner_node)
 
     # Start by generating an execution plan
     graph.add_edge(START, "planner")
@@ -79,9 +95,21 @@ def create_agent_graph(
         route_after_executor,
         {
             "tool": "tool",
-            "next_step": "advance",
+            "next_step": "reviewer",
         },
     )
+
+    graph.add_conditional_edges(
+        "reviewer",
+        route_after_review,
+        {
+            "advance": "advance",
+            "replan": "replanner",
+            "final": "final",
+        },
+    )
+
+    graph.add_edge("replanner","executor")
 
     # Continue the same plan item after tool execution
     graph.add_edge("tool", "executor")
@@ -101,3 +129,16 @@ def create_agent_graph(
 
     # Compile the graph into an executable workflow
     return graph.compile()
+
+
+def route_after_review(state: LangGraphState) -> str:
+    # Continue normally when the current plan step passed review
+    if state["step_success"]:
+        return "advance"
+
+    # Stop replanning after reaching the retry limit
+    if state["replan_count"] >= 2:
+        return "final"
+
+    # Replan when the current step failed review
+    return "replan"

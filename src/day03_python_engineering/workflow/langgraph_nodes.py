@@ -1,11 +1,24 @@
 from collections.abc import Callable
+from urllib import response
 
 from day03_python_engineering.llm.ollama_client import OllamaClient
 from day03_python_engineering.tools.registry import ToolRegistry
 from day03_python_engineering.workflow.langgraph_state import LangGraphState
-
+from pydantic import BaseModel
 
 import json
+
+class ReviewResult(BaseModel):
+    # Indicate whether the current plan step completed successfully
+    success: bool
+
+    # Explain why the step failed when success is false
+    feedback: str
+
+
+class PlanResult(BaseModel):
+    # Store the ordered steps that the workflow should execute
+    steps: list[str]
 
 def create_llm_node(
     client: OllamaClient,
@@ -109,7 +122,7 @@ def create_planner_node(
                     "Use the available tools when appropriate. "
                     f"Available tools: {tool_names}. "
                     "Do not invent tool limitations when a suitable tool exists. "
-                    "Return only a JSON array of strings. "
+                    "Return an execution plan that matches the required JSON schema. "
                     "Do not answer the user's request."
                 ),
             },
@@ -121,13 +134,16 @@ def create_planner_node(
 
         response = await client.chat(
             messages=messages,
+             # Force the planner output to match the plan schema
+            format=PlanResult.model_json_schema(),
         )
 
         content = response["message"]["content"]
-        plan = json.loads(content)
+
+        plan_result = PlanResult.model_validate_json(content)
 
         return {
-            "plan": plan,
+            "plan": plan_result.steps,
             "current_step": 0,
             "step": state["step"] + 1,
         }
@@ -241,15 +257,21 @@ def create_final_node(
         )
 
         messages = [
-            {
+           {
                 "role": "system",
                 "content": (
                     "You are a helpful AI assistant. "
                     "Answer the user's original request using the completed "
                     "plan step results below. "
                     "Combine all relevant results into one clear answer. "
-                    "Do not ignore any result that is needed to answer "
-                    "the original request."
+
+                    "Treat successful tool results as authoritative execution results. "
+                    "Do not question, reinterpret, or speculate about whether a tool "
+                    "result is real, current, simulated, or a placeholder. "
+
+                    "If the workflow could not complete a plan step successfully, "
+                    "clearly explain that limitation to the user. "
+                    "Do not claim that a task was completed when it was not."
                 ),
             },
             {
@@ -280,3 +302,133 @@ def create_final_node(
         }
 
     return final_node
+
+def create_reviewer_node(
+    client: OllamaClient,
+) -> Callable:
+    # Create a node that evaluates the result of the current plan step
+    async def reviewer_node(state: LangGraphState) -> dict:
+        current_step = state["current_step"]
+        task = state["plan"][current_step]
+
+        # Read the latest completed step result
+        result = state["step_results"][-1]
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful AI assistant. "
+                    "Answer the user's original request using the completed "
+                    "plan step results below. "
+                    "Combine all relevant results into one clear answer. "
+                    "If the workflow could not complete a plan step successfully, "
+                    "clearly explain that limitation to the user. "
+                    "Do not claim that a task was completed when it was not."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Plan step:\n{task}\n\n"
+                    f"Execution result:\n{result}"
+                ),
+            },
+        ]
+
+        response = await client.chat(
+            messages=messages,
+
+            # Force the model output to match the review schema
+            format=ReviewResult.model_json_schema(),
+        )
+
+        content = response["message"]["content"]
+
+        review = ReviewResult.model_validate_json(content)
+
+        return {
+            "step_success": review.success,
+            "review_feedback": review.feedback,
+            "step": state["step"] + 1,
+        }
+
+    return reviewer_node
+
+
+def create_replanner_node(
+    client: OllamaClient,
+    registry: ToolRegistry,
+    tool_groups: set[str] | None = None,
+) -> Callable:
+    # Create a node that rebuilds the remaining plan after a failed step
+    async def replanner_node(state: LangGraphState) -> dict:
+
+        current_step = state["current_step"]
+
+        # Keep steps that were already completed successfully
+        completed_plan = state["plan"][:current_step]
+
+        tools = registry.get_tool_schemas(
+            groups=tool_groups,
+        )
+
+        tool_names = [
+            tool["function"]["name"]
+            for tool in tools
+        ]
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a replanning assistant. "
+                    "The current plan step failed. "
+                    "Create a new plan for the remaining work. "
+                    "Do not repeat steps that were already completed. "
+                    "Use the available tools when appropriate. "
+                    f"Available tools: {tool_names}. "
+                    "Return the new remaining execution plan using the required JSON schema."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Original request:\n"
+                    f"{state['messages'][1]['content']}\n\n"
+                    f"Failed step:\n"
+                    f"{state['plan'][current_step]}\n\n"
+                    f"Review feedback:\n"
+                    f"{state['review_feedback']}"
+                ),
+            },
+        ]
+        response = await client.chat(
+            messages=messages,
+
+            # Force the replanner output to match the plan schema
+            format=PlanResult.model_json_schema(),
+        )
+
+        content = response["message"]["content"]
+
+        plan_result = PlanResult.model_validate_json(content)
+
+        new_remaining_plan = plan_result.steps
+
+        return {
+        "plan": [
+            *completed_plan,
+            *new_remaining_plan,
+        ],
+        "step_success": True,
+        "review_feedback": "",
+
+        # Record one replanning attempt
+        "replan_count": state["replan_count"] + 1,
+
+        "step": state["step"] + 1,
+    }
+
+    return replanner_node
+

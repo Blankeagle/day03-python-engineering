@@ -23,7 +23,12 @@ class OllamaClient:
             timeout=http_timeout,
         )
 
-    async def chat(self, messages, tools=None):
+    async def chat(
+            self,
+            messages: list[dict],
+            tools: list[dict] | None = None,
+            format: str | dict | None = None,
+        ):
     
         url = f"{self.base_url}/api/chat"
 
@@ -35,6 +40,10 @@ class OllamaClient:
 
         if tools is not None:
             payload["tools"] = tools
+
+        # Ask Ollama to return structured JSON when required
+        if format:
+            payload["format"] = format
 
         try:
           

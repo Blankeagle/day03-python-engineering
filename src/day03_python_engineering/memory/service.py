@@ -49,24 +49,27 @@ class MemoryService:
         user_id: str,
         update: MemoryUpdate,
     ) -> UserMemory:
-        memory = await self.get_memory(user_id)
+        lock = self._get_lock(user_id)
 
-        update_data = update.model_dump(
-            exclude_none=True,
-            exclude={"forget_fields"},
-        )
+        async with lock:
+            memory = await self.get_memory(user_id)
 
-        for field_name in update.forget_fields:
-            if field_name in UserMemory.model_fields:
-                update_data[field_name] = None
+            update_data = update.model_dump(
+                exclude_none=True,
+                exclude={"forget_fields"},
+            )
 
-        updated_memory = memory.model_copy(
-            update=update_data
-        )
+            for field_name in update.forget_fields:
+                if field_name in UserMemory.model_fields:
+                    update_data[field_name] = None
 
-        await self.store.save(updated_memory)
+            updated_memory = memory.model_copy(
+                update=update_data
+            )
 
-        return updated_memory
+            await self.store.save(updated_memory)
+
+            return updated_memory
 
     async def process_message(
         self,

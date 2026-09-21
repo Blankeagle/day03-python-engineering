@@ -14,8 +14,17 @@ class LangGraphState(TypedDict):
     # Track which plan item should be executed next
     current_step: int
 
-    # Store the result produced by each completed plan step
+    # Store results produced by completed plan steps
     step_results: list[str]
+
+    # Store whether the current plan step passed review
+    step_success: bool
+
+    # Store feedback when the current step needs replanning
+    review_feedback: str
+
+    # Track how many times the workflow has replanned
+    replan_count: int
 
     # Track how many graph nodes have been executed
     step: int

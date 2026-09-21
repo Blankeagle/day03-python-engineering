@@ -254,7 +254,7 @@ workflow loops.
 - LangGraph controls orchestration while existing services such as
   ToolRegistry, RAG, Memory, and Ollama remain reusable.
 
-  
+
 Day 12 最核心的变化：
   START
   ↓
@@ -265,3 +265,69 @@ Executor ←── Tool
 Advance
   ├──→ Executor
   └──→ Final → END
+
+
+
+## Day 13 - Review and Replanning
+
+### Goal
+
+Improve the planning workflow so the agent can evaluate execution results
+and dynamically adjust the remaining plan when a step fails.
+
+### Workflow
+
+```mermaid
+flowchart TD
+    START --> Planner
+    Planner --> Executor
+
+    Executor -->|Tool required| Tool
+    Tool --> Executor
+
+    Executor -->|Step completed| Reviewer
+
+    Reviewer -->|Success| Advance
+    Reviewer -->|Failed| Replanner
+
+    Replanner --> Executor
+
+    Advance -->|More steps| Executor
+    Advance -->|Plan completed| Final
+
+    Reviewer -->|Replan limit reached| Final
+
+    Final --> END
+
+
+
+Reviewer
+The Reviewer evaluates whether the current plan step was completed
+successfully.
+It produces structured output containing:
+- success
+- feedback
+
+Replanner
+When a step fails review, the Replanner creates a new plan for the
+remaining work while preserving already completed steps.
+Replan Protection
+The workflow tracks replan_count and limits the number of replanning
+attempts.
+LangGraph's recursion_limit provides an additional graph-level safety
+mechanism.
+
+Structured Output
+Planner and Replanner use PlanResult.
+Reviewer uses ReviewResult.
+Pydantic models and Ollama JSON Schema output are used to validate
+structured LLM responses
+
+.
+Key Takeaways
+- Execution results should be reviewed before advancing the plan.
+- Failed steps can trigger dynamic replanning.
+- Replanning and graph recursion limits solve different problems.
+- Structured output is safer than relying on raw JSON text from an LLM.
+- Successful tool results should be treated as authoritative execution
+  results by the final response generator.
