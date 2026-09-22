@@ -320,7 +320,7 @@ mechanism.
 Structured Output
 Planner and Replanner use PlanResult.
 Reviewer uses ReviewResult.
-Pydantic models and Ollama JSON Schema output are used to validate
+Pydantic models and Ollama JSON Schema output are used to validate 
 structured LLM responses
 
 .
@@ -331,3 +331,55 @@ Key Takeaways
 - Structured output is safer than relying on raw JSON text from an LLM.
 - Successful tool results should be treated as authoritative execution
   results by the final response generator.
+
+
+## Day 14 - LangGraph Checkpoint Persistence
+
+### Goal
+
+Add persistent workflow state to the LangGraph agent so workflow checkpoints can survive application restarts.
+
+### What I Learned
+
+- Difference between conversation persistence and workflow persistence
+- LangGraph `thread_id` and checkpoint state
+- `MemorySaver` stores checkpoints only in process memory
+- Redis can persist LangGraph checkpoints across application restarts
+- One conversation session can contain multiple independent workflow executions
+- `session_id` and workflow `thread_id` have different lifecycles
+- Shared async resources should be managed at the application level
+
+### Architecture
+
+```text
+Conversation Persistence
+
+Agent
+  ↓
+SessionManager
+  ↓
+Redis :6379
+  ├── Conversation Messages
+  └── Long-term User Memory
+
+
+Workflow Persistence
+
+Agent
+  ↓
+LangGraph
+  ↓
+AsyncRedisSaver
+  ↓
+Redis 8 :6380
+  ↓
+Workflow Checkpoints
+
+
+
+```text
+Redis :6379
+→ Session + Long-term Memory
+
+Redis 8 :6380
+→ LangGraph Checkpoint

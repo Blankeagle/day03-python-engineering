@@ -3,7 +3,6 @@ from day03_python_engineering.tools.registry import ToolRegistry
 import logging
 import json
 from uuid import uuid4
-
 from day03_python_engineering.request_context import request_id_var
 from day03_python_engineering.tools.result import ToolErrorCode, ToolResult
 
@@ -22,17 +21,21 @@ class Agent:
         self,
         client: OllamaClient,
         registry: ToolRegistry,
+        checkpointer,
         tool_groups: set[str] | None = None,
         max_steps: int = 10,
         max_messages: int = 20,
         graph_recursion_limit: int = 30,
+        
     ):
         self.client = client
         self.registry = registry
+        self.checkpointer = checkpointer
         self.tool_groups = set(tool_groups) if tool_groups is not None else None
         self.max_steps = max_steps
         self.max_messages = max_messages
         self.graph_recursion_limit = graph_recursion_limit
+        self.last_thread_id: str | None = None
 
         self.base_system_prompt = (
             "You are a helpful AI assistant."
@@ -45,113 +48,39 @@ class Agent:
             }
         ]
 
-        # # Create the LLM execution node
-        # self.llm_node = LLMNode(
-        #     client=self.client,
-        #     registry=self.registry,
-        #     tool_groups=self.tool_groups,
-        # )
-
-        # # Create the tool execution node
-        # self.tool_node = ToolNode(
-        #     registry=self.registry,
-        #     tool_groups=self.tool_groups,
-        # )
-
-        # # Build the workflow that controls node execution
-        # self.workflow = AgentWorkflow(
-        #     llm_node=self.llm_node,
-        #     tool_node=self.tool_node,
-        #     max_steps=self.max_steps,
-        # )
-
         # Build the LangGraph workflow
         self.graph = create_agent_graph(
             client=self.client,
             registry=self.registry,
+            checkpointer=self.checkpointer,
             tool_groups=self.tool_groups,
         )
 
         
 
-    async def run(self, user_input: str) -> str:
+    async def run(
+            self,
+            user_input: str,
+            session_id: str,
+        ) -> str:
         token = None
         if request_id_var.get() is None:
             token = request_id_var.set(uuid4().hex)
 
         try:
-            return await self._run(user_input)
+            return await self._run(user_input, session_id)
         finally:
             if token is not None:
                 request_id_var.reset(token)
 
-    # async def _run(self, user_input: str) -> str:
-    #     self.messages.append(
-    #         {
-    #             "role": "user",
-    #             "content": user_input,
-    #         }
-    #     )
-    #     self._trim_messages()
-
-    #     for step in range(self.max_steps):
-    #         response = await self.client.chat(
-    #             messages=self.messages,
-    #             tools=self.registry.get_tool_schemas(groups=self.tool_groups),
-    #             )
-
-    #         message = response["message"]
-
-    #         self.messages.append(message)
-
-    #         tool_calls = message.get("tool_calls", [])
-
-    #         if not tool_calls:
-    #             return message["content"]
-
-    #         for tool_call in tool_calls:
-    #             tool_name = tool_call["function"]["name"]
-
-    #             arguments = tool_call["function"].get(
-    #                 "arguments",
-    #                 {},
-    #             )
-
-    #             try:
-    #                 result = await self.registry.execute(
-    #                     tool_name,
-    #                     arguments,
-    #                     groups=self.tool_groups,
-    #                 )
-
-    #             except Exception:
-    #                 logger.exception("tool %s failed outside registry", tool_name)
-    #                 result = ToolResult(
-    #                     success=False,
-    #                     error=ToolErrorCode.TOOL_EXECUTION_ERROR,
-    #                     message="Tool execution failed.",
-    #                 )
-
-    #             logger.info(
-    #                 "agent step=%s tool=%s arguments=%s result=%s",
-    #                 step + 1,
-    #                 tool_name,
-    #                 arguments,
-    #                 result,
-    #             )
-
-    #             self.messages.append(
-    #                 {
-    #                     "role": "tool",
-    #                     "name": tool_name,
-    #                     "content": result.model_dump_json()
-    #                 }
-    #             )
-
-    #     return "Agent 超过最大执行步数，任务未完成。"
+   
 
 
-    async def _run(self, user_message: str) -> str:
+    async def _run(
+            self, 
+            user_message: str,
+            session_id: str,       
+            ) -> str:
         # Add the new user message to the conversation history
         self.messages.append(
             {
@@ -162,6 +91,7 @@ class Agent:
 
         # Build the initial state for LangGraph
         initial_state = {
+            "original_request": user_message,
             "messages": self.messages,
             "tool_calls": [],
             "plan": [],
@@ -173,33 +103,52 @@ class Agent:
 
             # No review feedback exists at startup
             "review_feedback": "",
-           "replan_count": 0,
+            "replan_count": 0,
 
             "step": 0,
         }
+
+        # Create a unique checkpoint thread for this workflow execution
+        thread_id = f"{session_id}:{uuid4()}"
+        # Keep the latest workflow thread ID for checkpoint inspection
+        self.last_thread_id = thread_id
         # Execute the graph with a recursion limit
         try:
+        
+
             # Execute the graph with a recursion limit
             final_state = await self.graph.ainvoke(
-            initial_state,
-            config={
-                # Limit the total number of graph node executions
-                "recursion_limit": self.graph_recursion_limit,
-            },
-        )
+                initial_state,
+                config={
+                    # Limit the total number of graph node executions
+                    "recursion_limit": self.graph_recursion_limit,
+
+                    # Use the application session as the LangGraph checkpoint thread
+                    "configurable": {
+                        "thread_id": thread_id,
+                    },
+                },
+            )
         except GraphRecursionError as exc:
             raise AgentWorkflowError(
                 "Agent workflow exceeded the maximum number of steps."
             ) from exc
 
-        # Save the conversation history returned by the graph
-        self.messages = final_state["messages"]
+       # Get the final answer produced by the workflow
+        final_answer = final_state["messages"][-1]["content"]
+
+        # Save only the final assistant answer to the conversation history
+        self.messages.append(
+            {
+                "role": "assistant",
+                "content": final_answer,
+            }
+        )
 
         # Trim old conversation messages
         self._trim_messages()
 
-        # Return the final assistant response
-        return self.messages[-1]["content"]
+        return final_answer
 
     def _trim_messages(self):
         if len(self.messages) <= self.max_messages + 1:
@@ -233,39 +182,15 @@ class Agent:
         self.messages[0]["content"] = content
 
 
-    async def debug_stream(
+    async def get_graph_state(
         self,
-        user_message: str,
-    ) -> None:
-        # Build an isolated message list for debugging
-        messages = [
-            *self.messages,
-            {
-                "role": "user",
-                "content": user_message,
+        thread_id: str,
+    ):
+        # Read the latest checkpoint for the workflow execution
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
             },
-        ]
-
-        # Build the initial graph state
-        initial_state = {
-            "messages": self.messages,
-            "tool_calls": [],
-            "plan": [],
-            "current_step": 0,
-            "replan_count": 0,
-
-            # Store completed plan step results
-            "step_results": [],
-
-            "step": 0,
         }
 
-        # Stream graph updates node by node
-        async for event in self.graph.astream(
-            initial_state,
-            config={
-                "recursion_limit": self.graph_recursion_limit,
-            },
-            stream_mode="updates",
-        ):
-            print("GRAPH EVENT:", event)
+        return await self.graph.aget_state(config)

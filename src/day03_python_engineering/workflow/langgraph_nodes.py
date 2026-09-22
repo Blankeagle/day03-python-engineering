@@ -4,9 +4,7 @@ from urllib import response
 from day03_python_engineering.llm.ollama_client import OllamaClient
 from day03_python_engineering.tools.registry import ToolRegistry
 from day03_python_engineering.workflow.langgraph_state import LangGraphState
-from pydantic import BaseModel
-
-import json
+from pydantic import BaseModel, Field
 
 class ReviewResult(BaseModel):
     # Indicate whether the current plan step completed successfully
@@ -17,8 +15,8 @@ class ReviewResult(BaseModel):
 
 
 class PlanResult(BaseModel):
-    # Store the ordered steps that the workflow should execute
-    steps: list[str]
+    # Store at least one executable plan step
+    steps: list[str] = Field(min_length=1)
 
 def create_llm_node(
     client: OllamaClient,
@@ -102,8 +100,7 @@ def create_planner_node(
 ) -> Callable:
     # Create a node that breaks a complex request into executable steps
     async def planner_node(state: LangGraphState) -> dict:
-        user_message = state["messages"][-1]["content"]
-
+        user_message = state["original_request"]
         tools = registry.get_tool_schemas(
             groups=tool_groups,
         )
@@ -159,6 +156,13 @@ def create_executor_node(
     async def executor_node(state: LangGraphState) -> dict:
         current_step = state["current_step"]
         plan = state["plan"]
+        # Protect the executor from an invalid plan position
+        if current_step < 0 or current_step >= len(plan):
+            raise ValueError(
+                f"Invalid plan position: "
+                f"current_step={current_step}, plan_length={len(plan)}"
+            )
+
         task = plan[current_step]
 
         messages = list(state["messages"])
@@ -278,7 +282,7 @@ def create_final_node(
                 "role": "user",
                 "content": (
                     f"Original request:\n"
-                    f"{state['messages'][1]['content']}\n\n"
+                    f"{state['original_request']}\n\n"
                     f"Completed step results:\n"
                     f"{results}"
                 ),
@@ -395,7 +399,7 @@ def create_replanner_node(
                 "role": "user",
                 "content": (
                     f"Original request:\n"
-                    f"{state['messages'][1]['content']}\n\n"
+                    f"{state['original_request']}\n\n"
                     f"Failed step:\n"
                     f"{state['plan'][current_step]}\n\n"
                     f"Review feedback:\n"

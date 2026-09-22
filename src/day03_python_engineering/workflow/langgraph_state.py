@@ -2,6 +2,9 @@ from typing import Any, TypedDict
 
 
 class LangGraphState(TypedDict):
+    # Store the original request for the current workflow execution
+    original_request: str
+
     # Store the conversation history shared across graph nodes
     messages: list[dict[str, Any]]
 
@@ -28,3 +31,5 @@ class LangGraphState(TypedDict):
 
     # Track how many graph nodes have been executed
     step: int
+
+    

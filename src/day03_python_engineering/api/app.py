@@ -11,7 +11,6 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from day03_python_engineering.api.dependencies import close_dependencies, initialize_rag
 from day03_python_engineering.api.routes import router
 from day03_python_engineering.exceptions import (
     OllamaServiceError,
@@ -24,17 +23,38 @@ from day03_python_engineering.rag.service import RAGService
 
 from day03_python_engineering.exceptions import AgentWorkflowError
 
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+from day03_python_engineering.config import settings
+
+
+from day03_python_engineering.api.dependencies import (
+    initialize_rag,
+    close_dependencies,
+    set_checkpointer,
+)
+
+
 logger = logging.getLogger(__name__)
 
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await initialize_rag()
+    # Create one shared Redis checkpointer for the application
+    async with AsyncRedisSaver.from_conn_string(
+        settings.langgraph_redis_url
+    ) as checkpointer:
+        # Create the Redis indexes required by the checkpointer
+        await checkpointer.asetup()
 
+        # Make the shared checkpointer available to API dependencies
+        set_checkpointer(checkpointer)
 
-    yield
-    await close_dependencies()
+        await initialize_rag()
+
+        yield
+
+        await close_dependencies()
 
 
 def _error_response(status_code: int, code: str, message: str) -> JSONResponse:

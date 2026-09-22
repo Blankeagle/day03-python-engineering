@@ -12,6 +12,7 @@ from day03_python_engineering.workflow.langgraph_nodes import (
     create_tool_node,
 )
 from day03_python_engineering.workflow.langgraph_state import LangGraphState
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 
 def route_after_executor(state: LangGraphState) -> str:
@@ -35,6 +36,7 @@ def route_after_advance(state: LangGraphState) -> str:
 def create_agent_graph(
     client: OllamaClient,
     registry: ToolRegistry,
+    checkpointer,
     tool_groups: set[str] | None = None,
 ):
     # Create the graph with shared agent state
@@ -46,6 +48,7 @@ def create_agent_graph(
         registry=registry,
         tool_groups=tool_groups,
     )
+  
 
     executor_node = create_executor_node(
         client=client,
@@ -109,8 +112,14 @@ def create_agent_graph(
         },
     )
 
-    graph.add_edge("replanner","executor")
-
+    graph.add_conditional_edges(
+        "replanner",
+        route_after_replanner,
+        {
+            "executor": "executor",
+            "final": "final",
+        },
+    )
     # Continue the same plan item after tool execution
     graph.add_edge("tool", "executor")
 
@@ -128,7 +137,9 @@ def create_agent_graph(
     graph.add_edge("final", END)
 
     # Compile the graph into an executable workflow
-    return graph.compile()
+    return graph.compile(
+        checkpointer=checkpointer,
+    )
 
 
 def route_after_review(state: LangGraphState) -> str:
@@ -142,3 +153,11 @@ def route_after_review(state: LangGraphState) -> str:
 
     # Replan when the current step failed review
     return "replan"
+
+def route_after_replanner(state: LangGraphState) -> str:
+    # Continue only when the replanned workflow has work left to execute
+    if state["current_step"] < len(state["plan"]):
+        return "executor"
+
+    # Finish safely when there are no remaining plan steps
+    return "final"

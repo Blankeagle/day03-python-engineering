@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 from day03_python_engineering.api.dependencies import (
     create_agent,
+    get_checkpointer,
     get_session_manager,
 )
 from day03_python_engineering.session.manager import SessionManager
@@ -58,6 +59,7 @@ async def chat(
     request: ChatRequest,
     session_manager: SessionManager = Depends(get_session_manager),
     memory_service: MemoryService = Depends(get_memory_service),
+    checkpointer=Depends(get_checkpointer),
 
 ):
     async with session_manager.lock(request.session_id):
@@ -65,7 +67,7 @@ async def chat(
 
         if agent is None:
             messages = await session_manager.load_messages(request.session_id)
-            agent = create_agent()
+            agent = create_agent(checkpointer=checkpointer,)
             if messages is not None:
                 agent.messages = messages
 
@@ -74,12 +76,7 @@ async def chat(
         memory_prompt = memory.to_prompt()
         agent.set_user_memory(memory_prompt)
 
-        # Temporarily inspect LangGraph node-by-node execution
-        # await agent.debug_stream(
-        #     request.message
-        # )
-
-        answer = await agent.run(request.message)
+        answer = await agent.run(request.message,request.session_id)
         
         # save the session history after processing the message
         await session_manager.set(request.session_id, agent)
@@ -126,3 +123,4 @@ async def rag_query(
         question=request.question,
         top_k=3,
     )
+

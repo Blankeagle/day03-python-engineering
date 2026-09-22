@@ -41,6 +41,9 @@ _session_manager = SessionManager(
     store=_redis_store,
 )
 
+# The shared LangGraph checkpointer is initialized during application startup
+_checkpointer = None
+
 
 def get_session_manager() -> SessionManager:
     return _session_manager
@@ -143,12 +146,13 @@ async def initialize_rag():
         Path("data")
     )
 
-def create_agent(tool_groups: set[str] | None = None) -> Agent:
+def create_agent( checkpointer,tool_groups: set[str] | None = None) -> Agent:
  
 
     return Agent(
         client=_ollama_client,
         registry=_tool_registry,
+        checkpointer=checkpointer,
         tool_groups=tool_groups,
         max_steps=10,
         max_messages=20,
@@ -160,3 +164,14 @@ async def close_dependencies():
     await _weather_client.aclose()
     await _redis_store.close()
     await _memory_store.close()
+
+def set_checkpointer(checkpointer) -> None:
+    global _checkpointer
+    _checkpointer = checkpointer
+
+
+def get_checkpointer():
+    if _checkpointer is None:
+        raise RuntimeError("LangGraph checkpointer is not initialized")
+
+    return _checkpointer
