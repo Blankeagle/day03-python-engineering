@@ -13,3 +13,6 @@ class ToolDefinition:
     allow_retry: bool = False
     enabled: bool = True
     groups: set[str] | None = None
+    
+    # Require human approval before executing this tool
+    requires_approval: bool = False

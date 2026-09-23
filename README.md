@@ -383,3 +383,42 @@ Redis :6379
 
 Redis 8 :6380
 → LangGraph Checkpoint
+
+
+
+## Day 15 - Human-in-the-Loop and Workflow Resume
+
+- Added LangGraph `interrupt()` for human approval
+- Added workflow resume with `Command(resume=...)`
+- Added `/chat/resume` API endpoint
+- Added selective approval for destructive tools
+- Added tool-level `requires_approval` metadata
+- Added a second execution guard in ToolNode
+- Added cross-process resume with Redis checkpoints
+- Added tests for protected tool execution
+
+
+### Structer
+User Request
+    ↓
+Planner
+    ↓
+Check Tool Metadata
+    ↓
+requires approval?
+   ↙            ↘
+ No             Yes
+ ↓               ↓
+Executor      interrupt()
+                 ↓
+              Human
+             ↙     ↘
+          Reject  Approve
+            ↓       ↓
+          Final   Resume
+                    ↓
+                 Executor
+                    ↓
+              ToolNode Guard
+                    ↓
+              Actual Tool

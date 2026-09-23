@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-
+from typing import Any
+ 
 from day03_python_engineering.api.dependencies import (
     create_agent,
     get_checkpointer,
@@ -14,8 +15,30 @@ from day03_python_engineering.api.dependencies import (
 from day03_python_engineering.rag.result import RAGResponse
 from day03_python_engineering.rag.service import RAGService
 from src.day03_python_engineering.memory.service import MemoryService
+from day03_python_engineering.agent.result import AgentRunResult
+
+
 router = APIRouter()
 
+
+class ChatData(BaseModel):
+    # Describe the current workflow state
+    status: str
+
+    # Store the final answer after workflow completion
+    answer: str | None = None
+
+    # Identify the workflow execution for later resume
+    thread_id: str | None = None
+
+    # Store interrupt information when the workflow is paused
+    interrupt: Any | None = None
+
+
+class ChatResponse(BaseModel):
+    success: bool
+    data: ChatData
+   
 
 class RAGQueryRequest(BaseModel):
     question: str = Field(
@@ -40,8 +63,37 @@ class ChatRequest(BaseModel):
         max_length=2000,
     )
 
+class ResumeRequest(BaseModel):
+    # Identify the conversation session
+    session_id: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    # Identify the interrupted workflow execution
+    thread_id: str = Field(
+        min_length=1,
+        max_length=200,
+    )
+
+    # Provide the user's approval decision
+    decision: bool
+
+from typing import Any
+
+
 class ChatData(BaseModel):
-    answer: str
+    # Describe the current workflow state
+    status: str
+
+    # Store the final answer after workflow completion
+    answer: str | None = None
+
+    # Identify the workflow execution for later resume
+    thread_id: str | None = None
+
+    # Store interrupt information when the workflow is paused
+    interrupt: Any | None = None
 
 
 class ChatResponse(BaseModel):
@@ -76,10 +128,12 @@ async def chat(
         memory_prompt = memory.to_prompt()
         agent.set_user_memory(memory_prompt)
 
-        answer = await agent.run(request.message,request.session_id)
-        
+        result = await agent.run(request.message,request.session_id)
+
         # save the session history after processing the message
         await session_manager.set(request.session_id, agent)
+
+      
 
         # update long term memory based on the user input
         await memory_service.process_message(
@@ -87,10 +141,8 @@ async def chat(
             message=request.message,
         )
 
-    return ChatResponse(
-        success=True,
-        data=ChatData(answer=answer),
-    )
+    return build_chat_response(result)
+
 
 
 @router.delete("/sessions/{session_id}")
@@ -124,3 +176,65 @@ async def rag_query(
         top_k=3,
     )
 
+
+@router.post("/chat/resume", response_model=ChatResponse)
+async def resume_chat(
+    request: ResumeRequest,
+    session_manager: SessionManager = Depends(get_session_manager),
+    checkpointer=Depends(get_checkpointer),
+):
+    # Protect the same session from concurrent modifications
+    async with session_manager.lock(request.session_id):
+        agent = session_manager.get(request.session_id)
+
+        # Recreate the agent when the in-memory cache was lost after restart
+        if agent is None:
+            agent = create_agent(
+                checkpointer=checkpointer,
+            )
+
+            # Restore the conversation history from Redis
+        messages = await session_manager.load_messages(
+            request.session_id,
+        )
+
+        if messages is not None:
+            agent.messages = messages
+
+        # Resume the interrupted workflow using the original thread ID
+        result = await agent.resume(
+            thread_id=request.thread_id,
+            decision=request.decision,
+        )
+        # Save the updated conversation after resuming the workflow
+        await session_manager.set(
+            request.session_id,
+            agent,
+        )
+    return build_chat_response(result)
+
+
+
+
+
+def build_chat_response(result: AgentRunResult) -> ChatResponse:
+    # Build a response for an interrupted workflow
+    if result.status == "interrupted":
+        return ChatResponse(
+            success=True,
+            data=ChatData(
+                status=result.status,
+                thread_id=result.thread_id,
+                interrupt=result.interrupt,
+            ),
+        )
+
+    # Build a response for a completed workflow
+    return ChatResponse(
+        success=True,
+        data=ChatData(
+            status=result.status,
+            answer=result.answer,
+            thread_id=result.thread_id,
+        ),
+    )

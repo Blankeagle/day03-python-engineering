@@ -40,6 +40,7 @@ class ToolRegistry:
         input_model: type[BaseModel],
         allow_retry: bool = False,
         groups: set[str] | None = None,
+        requires_approval: bool = False,
     ):
         if name in self._tools:
             raise ValueError(f"Tool already registered: {name}")
@@ -51,6 +52,8 @@ class ToolRegistry:
             input_model=input_model,
             allow_retry=allow_retry,
             groups=set(groups) if groups is not None else None,
+            requires_approval=requires_approval,
+
         )
         self._schema_cache.clear()
 
@@ -261,3 +264,12 @@ class ToolRegistry:
             error=ToolErrorCode.TOOL_EXECUTION_ERROR,
             message="Tool execution failed.",
         )
+
+    def requires_approval(self, name: str) -> bool:
+        # Return whether the tool requires human approval
+        definition = self._tools.get(name)
+
+        if definition is None:
+            return False
+
+        return definition.requires_approval

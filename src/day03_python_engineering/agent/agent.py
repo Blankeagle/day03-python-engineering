@@ -5,6 +5,8 @@ import json
 from uuid import uuid4
 from day03_python_engineering.request_context import request_id_var
 from day03_python_engineering.tools.result import ToolErrorCode, ToolResult
+from day03_python_engineering.agent.result import AgentRunResult
+from langgraph.types import Command
 
 from day03_python_engineering.workflow.langgraph_workflow import (
     create_agent_graph,
@@ -62,7 +64,7 @@ class Agent:
             self,
             user_input: str,
             session_id: str,
-        ) -> str:
+        ) -> AgentRunResult:
         token = None
         if request_id_var.get() is None:
             token = request_id_var.set(uuid4().hex)
@@ -80,7 +82,7 @@ class Agent:
             self, 
             user_message: str,
             session_id: str,       
-            ) -> str:
+            ) -> AgentRunResult:
         # Add the new user message to the conversation history
         self.messages.append(
             {
@@ -104,6 +106,11 @@ class Agent:
             # No review feedback exists at startup
             "review_feedback": "",
             "replan_count": 0,
+
+            # No approval decision has been made yet
+            "approval": False,
+            # No human approval is required by default
+            "requires_approval": False,
 
             "step": 0,
         }
@@ -129,6 +136,15 @@ class Agent:
                     },
                 },
             )
+            # Return workflow information when execution is paused
+            interrupts = final_state.get("__interrupt__", [])
+
+            if interrupts:
+                return AgentRunResult(
+                    status="interrupted",
+                    thread_id=thread_id,
+                    interrupt=interrupts[0].value,
+                )
         except GraphRecursionError as exc:
             raise AgentWorkflowError(
                 "Agent workflow exceeded the maximum number of steps."
@@ -148,7 +164,11 @@ class Agent:
         # Trim old conversation messages
         self._trim_messages()
 
-        return final_answer
+        return AgentRunResult(
+            status="completed",
+            answer=final_answer,
+            thread_id=thread_id,
+        )
 
     def _trim_messages(self):
         if len(self.messages) <= self.max_messages + 1:
@@ -194,3 +214,52 @@ class Agent:
         }
 
         return await self.graph.aget_state(config)
+
+
+    async def resume(
+        self,
+        thread_id: str,
+        decision: bool,
+    ) -> AgentRunResult:
+        # Reuse the original thread ID to load the saved checkpoint
+        config = {
+            "recursion_limit": self.graph_recursion_limit,
+            "configurable": {
+                "thread_id": thread_id,
+            },
+        }
+
+        # Resume the workflow from the saved interrupt
+        final_state = await self.graph.ainvoke(
+            Command(resume=decision),
+            config=config,
+        )
+
+        # Return workflow information if execution is interrupted again
+        interrupts = final_state.get("__interrupt__", [])
+
+        if interrupts:
+            return AgentRunResult(
+                status="interrupted",
+                thread_id=thread_id,
+                interrupt=interrupts[0].value,
+            )
+        # Get the final answer after the resumed workflow completes
+        final_answer = final_state["messages"][-1]["content"]
+
+        # Save only the final assistant answer to conversation history
+        self.messages.append(
+            {
+                "role": "assistant",
+                "content": final_answer,
+            }
+        )
+
+        # Trim old conversation messages
+        self._trim_messages()
+
+        return AgentRunResult(
+            status="completed",
+            answer=final_answer,
+            thread_id=thread_id,
+        )

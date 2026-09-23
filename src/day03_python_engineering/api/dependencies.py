@@ -22,6 +22,11 @@ from day03_python_engineering.tools.time_tool import (
     CurrentTimeInput,
 )
 
+from day03_python_engineering.tools.delete_saved_data import (
+    delete_saved_data,
+    DeleteSavedDataInput,
+)
+
 from pathlib import Path
 
 from day03_python_engineering.rag.indexer import DocumentIndexer
@@ -65,6 +70,18 @@ _tool_registry.register(
     get_current_time,
     input_model=CurrentTimeInput,
 )
+
+_tool_registry.register(
+    "delete_saved_data",
+    "Delete all saved user data. This is a destructive operation.",
+    delete_saved_data,
+    input_model=DeleteSavedDataInput,
+    allow_retry=False,
+    requires_approval=True,
+
+)
+
+
 
 _embedding_client = EmbeddingClient()
 

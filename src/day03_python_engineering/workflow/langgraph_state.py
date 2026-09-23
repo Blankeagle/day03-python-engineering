@@ -32,4 +32,12 @@ class LangGraphState(TypedDict):
     # Track how many graph nodes have been executed
     step: int
 
+    # Store the user's approval decision after an interrupt
+    approval: bool
+
+    # Store whether the current plan requires human approval
+    requires_approval: bool
+
+    # Store the tool names selected by the planner
+    tool_names: list[str]
     
