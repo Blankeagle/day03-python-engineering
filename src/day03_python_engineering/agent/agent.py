@@ -39,6 +39,8 @@ class Agent:
         self.max_messages = max_messages
         self.graph_recursion_limit = graph_recursion_limit
         self.last_thread_id: str | None = None
+        # Keep the latest workflow trace for evaluation and debugging
+        self.last_trace: AgentTrace | None = None
 
         self.base_system_prompt = (
             "You are a helpful AI assistant."
@@ -101,6 +103,9 @@ class Agent:
         trace = AgentTrace(
             thread_id=thread_id,
         )
+
+        # Keep the trace accessible after the workflow execution
+        self.last_trace = trace
 
         # Build the initial state for LangGraph
         initial_state = {

@@ -31,7 +31,7 @@ from pathlib import Path
 
 from day03_python_engineering.rag.indexer import DocumentIndexer
 from day03_python_engineering.rag.text_splitter import TextSplitter
-from src.day03_python_engineering.tools.rag_tool import RAGQueryInput, search_knowledge_base
+from day03_python_engineering.tools.rag_tool import RAGQueryInput, search_knowledge_base
 
 from day03_python_engineering.memory.redis_store import RedisMemoryStore
 from day03_python_engineering.memory.extractor import MemoryExtractor

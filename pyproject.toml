@@ -28,3 +28,10 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
 ]
+
+
+[tool.pytest.ini_options]
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "eval: runs real agent evaluation tests that may call external model services",
+]

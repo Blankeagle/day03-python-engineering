@@ -422,3 +422,49 @@ Executor      interrupt()
               ToolNode Guard
                     ↓
               Actual Tool
+
+
+## Day 16 - Agent Observability and Trace
+
+- Added `AgentTrace` for workflow-level observability
+- Added trace events for LangGraph node lifecycle:
+  - `node_started`
+  - `node_completed`
+  - `node_failed`
+- Added tool execution trace events:
+  - `tool_called`
+  - `tool_completed`
+  - `tool_failed`
+  - `tool_exception`
+- Traced planner, executor, tool, reviewer, advance, replan, and final nodes
+- Preserved trace data across LangGraph checkpoint resume
+- Verified trace restoration across process restarts
+- Avoided storing tool arguments and full tool results in trace events
+- Added unit tests for `AgentTrace`
+
+
+HTTP request
+     ↓
+request_id
+     ↓
+Agent Workflow
+     ↓
+thread_id + AgentTrace
+     ↓
+Planner → Executor → Tool → Reviewer → Final
+
+
+
+## Day 17 - Agent Evaluation
+
+- Added `EvalCase` and `EvalResult` models
+- Added deterministic evaluation logic for expected vs actual agent behavior
+- Added real Agent evaluation runner
+- Reused `AgentTrace` to inspect planner tool selection
+- Added evaluation cases for:
+  - Time tool selection
+  - RAG tool selection
+  - Human approval for destructive tools
+- Added real Agent evaluation tests using `MemorySaver`
+- Added the `eval` pytest marker to separate slow LLM evaluations from fast unit tests
+- Verified Agent evaluations without executing protected tools before approval
