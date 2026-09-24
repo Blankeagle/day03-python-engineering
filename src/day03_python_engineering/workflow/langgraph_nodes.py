@@ -77,6 +77,10 @@ def create_tool_node(
 
         messages = list(state["messages"])
 
+        # Track the latest tool execution status
+        last_tool_success: bool | None = None
+
+
         # Execute every tool call requested by the latest LLM response
         for tool_call in state["tool_calls"]:
             function = tool_call["function"]
@@ -127,6 +131,12 @@ def create_tool_node(
 
                 raise
 
+            # Aggregate tool execution status across all tool calls
+            if last_tool_success is None:
+                last_tool_success = result.success
+            else:
+                last_tool_success = last_tool_success and result.success
+
             # Record the completion status of the tool execution
             state["trace"].add_event(
                 "tool_completed",
@@ -160,6 +170,7 @@ def create_tool_node(
             "messages": messages,
             "tool_calls": [],
             "step": state["step"] + 1,
+            "last_tool_success": last_tool_success,
         }
 
     return tool_node
@@ -386,6 +397,8 @@ def advance_plan_node(
     return {
         "current_step": state["current_step"] + 1,
         "step": state["step"] + 1,
+        # Reset the tool status before starting the next plan step
+        "last_tool_success": None,
     }
 
 
@@ -492,6 +505,26 @@ def create_reviewer_node(
             current_step=state["current_step"],
         )
 
+        # Read the deterministic status of the latest tool execution
+        last_tool_success = state.get("last_tool_success")
+
+        # A failed tool execution means the current step cannot be considered successful
+        if last_tool_success is False:
+            state["trace"].add_event(
+                "node_completed",
+                node="reviewer",
+                current_step=state["current_step"],
+                success=False,
+            )
+
+            return {
+                "step_success": False,
+                "review_feedback": "The required tool execution failed.",
+                "step": state["step"] + 1,
+            }
+        
+
+
         current_step = state["current_step"]
         task = state["plan"][current_step]
 
@@ -502,19 +535,22 @@ def create_reviewer_node(
             {
                 "role": "system",
                 "content": (
-                    "You are a helpful AI assistant. "
-                    "Answer the user's original request using the completed "
-                    "plan step results below. "
-                    "Combine all relevant results into one clear answer. "
-                    "If the workflow could not complete a plan step successfully, "
-                    "clearly explain that limitation to the user. "
-                    "Do not claim that a task was completed when it was not."
+                    "You are a workflow reviewer. "
+                    "Evaluate whether the current plan step was completed successfully. "
+                    "Do not generate the final answer to the user. "
+                    "Focus only on whether the execution result satisfies the current plan step. "
+                    "If the execution result clearly shows a successful tool result that "
+                    "satisfies the plan step, set success to true. "
+                    "Set success to false only when the result is missing, failed, invalid, "
+                    "or insufficient to complete the plan step. "
+                    "When success is false, briefly explain the reason in feedback."
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"Plan step:\n{task}\n\n"
+                    f"Tool execution success:\n{last_tool_success}\n\n"
                     f"Execution result:\n{result}"
                 ),
             },
@@ -531,6 +567,7 @@ def create_reviewer_node(
 
         review = ReviewResult.model_validate_json(content)
 
+      
         # Record the completion of the reviewer node
         state["trace"].add_event(
             "node_completed",
@@ -623,18 +660,20 @@ def create_replanner_node(
         )
 
         return {
-        "plan": [
-            *completed_plan,
-            *new_remaining_plan,
-        ],
-        "step_success": True,
-        "review_feedback": "",
+            "plan": [
+                *completed_plan,
+                *new_remaining_plan,
+            ],
+            "review_feedback": "",
 
-        # Record one replanning attempt
-        "replan_count": state["replan_count"] + 1,
+            # Reset the tool status before executing the replanned step
+            "last_tool_success": None,
 
-        "step": state["step"] + 1,
-    }
+            # Record one replanning attempt
+            "replan_count": state["replan_count"] + 1,
+
+            "step": state["step"] + 1,
+        }
 
     return replanner_node
 

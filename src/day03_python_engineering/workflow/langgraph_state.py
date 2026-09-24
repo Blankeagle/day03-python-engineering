@@ -43,4 +43,7 @@ class LangGraphState(TypedDict):
 
     # Store observability data for this workflow execution
     trace: AgentTrace
+
+    # Store the latest tool execution status
+    last_tool_success: bool | None
     

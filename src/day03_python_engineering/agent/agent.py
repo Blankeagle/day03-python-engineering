@@ -132,6 +132,9 @@ class Agent:
 
             # Make the trace available to every workflow node
             "trace": trace,
+            
+            # No tool has been executed for the initial plan step
+            "last_tool_success": None,
 
             "step": 0,
         }

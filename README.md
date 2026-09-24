@@ -468,3 +468,16 @@ Planner → Executor → Tool → Reviewer → Final
 - Added real Agent evaluation tests using `MemorySaver`
 - Added the `eval` pytest marker to separate slow LLM evaluations from fast unit tests
 - Verified Agent evaluations without executing protected tools before approval
+
+
+## Day 18 - Agent Reliability
+
+- Improved reviewer reliability by separating deterministic tool status from semantic task evaluation
+- Added `last_tool_success` to workflow state
+- Added deterministic fast-fail behavior for failed tool executions
+- Reset tool execution status when advancing or replanning
+- Fixed stale workflow state after replanning
+- Removed unnecessary `step_success` updates from the replanner
+- Added aggregated status handling for multiple tool calls
+- Added reviewer, replanner, and tool-node reliability tests
+- Verified real Agent evaluation without unnecessary replanning for successful time-tool execution
