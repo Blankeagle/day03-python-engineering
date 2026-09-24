@@ -1,5 +1,5 @@
 from typing import Any, TypedDict
-
+from day03_python_engineering.observability.trace import AgentTrace
 
 class LangGraphState(TypedDict):
     # Store the original request for the current workflow execution
@@ -40,4 +40,7 @@ class LangGraphState(TypedDict):
 
     # Store the tool names selected by the planner
     tool_names: list[str]
+
+    # Store observability data for this workflow execution
+    trace: AgentTrace
     

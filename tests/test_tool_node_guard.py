@@ -2,7 +2,7 @@ import pytest
 
 from day03_python_engineering.tools.registry import ToolRegistry
 from day03_python_engineering.workflow.langgraph_nodes import create_tool_node
-
+from day03_python_engineering.observability.trace import AgentTrace
 from pydantic import BaseModel
 
 
@@ -17,6 +17,8 @@ async def delete_saved_data() -> str:
 @pytest.mark.asyncio
 async def test_tool_node_blocks_unapproved_protected_tool():
     registry = ToolRegistry()
+
+
 
     registry.register(
         name="delete_saved_data",
@@ -41,6 +43,8 @@ async def test_tool_node_blocks_unapproved_protected_tool():
             }
         ],
         "approval": False,
+        "trace": AgentTrace(thread_id="test-thread"),
+
         "step": 0,
     }
 
@@ -77,6 +81,7 @@ async def test_tool_node_allows_approved_protected_tool():
             }
         ],
         "approval": True,
+        "trace": AgentTrace(thread_id="test-thread"),
         "step": 0,
     }
 

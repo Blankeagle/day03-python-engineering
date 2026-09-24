@@ -15,6 +15,7 @@ from day03_python_engineering.workflow.langgraph_workflow import (
 from langgraph.errors import GraphRecursionError
 
 from day03_python_engineering.exceptions import AgentWorkflowError
+from day03_python_engineering.observability.trace import AgentTrace
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +92,23 @@ class Agent:
             }
         )
 
+        # Create a unique checkpoint thread for this workflow execution
+        thread_id = f"{session_id}:{uuid4()}"
+        # Keep the latest workflow thread ID for checkpoint inspection
+        self.last_thread_id = thread_id
+
+        # Create one trace for this workflow execution
+        trace = AgentTrace(
+            thread_id=thread_id,
+        )
+
         # Build the initial state for LangGraph
         initial_state = {
             "original_request": user_message,
             "messages": self.messages,
             "tool_calls": [],
+            "tool_names": [],
+
             "plan": [],
             "current_step": 0,
             "step_results": [],
@@ -112,13 +125,14 @@ class Agent:
             # No human approval is required by default
             "requires_approval": False,
 
+            # Make the trace available to every workflow node
+            "trace": trace,
+
             "step": 0,
         }
 
-        # Create a unique checkpoint thread for this workflow execution
-        thread_id = f"{session_id}:{uuid4()}"
-        # Keep the latest workflow thread ID for checkpoint inspection
-        self.last_thread_id = thread_id
+
+
         # Execute the graph with a recursion limit
         try:
         
@@ -136,6 +150,10 @@ class Agent:
                     },
                 },
             )
+
+            # Print trace events for local development
+            print("AGENT TRACE:", trace.events)
+
             # Return workflow information when execution is paused
             interrupts = final_state.get("__interrupt__", [])
 
@@ -234,6 +252,12 @@ class Agent:
             Command(resume=decision),
             config=config,
         )
+
+        # Print the restored trace after workflow resume
+        trace = final_state.get("trace")
+
+        if trace is not None:
+            print("RESUMED AGENT TRACE:", trace.events)
 
         # Return workflow information if execution is interrupted again
         interrupts = final_state.get("__interrupt__", [])

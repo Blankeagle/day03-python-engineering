@@ -68,6 +68,13 @@ def create_tool_node(
 ) -> Callable:
     # Create a node that executes tool calls requested by the LLM
     async def tool_node(state: LangGraphState) -> dict:
+
+        # Record the start of the tool node
+        state["trace"].add_event(
+            "node_started",
+            node="tool",
+        )
+
         messages = list(state["messages"])
 
         # Execute every tool call requested by the latest LLM response
@@ -76,19 +83,63 @@ def create_tool_node(
 
             tool_name = function["name"]
             arguments = function.get("arguments", {})
- 
+
+            # Record the actual tool requested by the executor
+            state["trace"].add_event(
+                "tool_called",
+                tool=tool_name,
+            )
+            
             # Block protected tools unless human approval has been granted
             if registry.requires_approval(tool_name) and not state["approval"]:
+                # Record that the tool node was blocked by the approval guard
+                state["trace"].add_event(
+                    "node_failed",
+                    node="tool",
+                    error_type="PermissionError",
+                )
+
                 raise PermissionError(
                     f"Tool '{tool_name}' requires human approval before execution."
                 )
 
             # Delegate validation, timeout, and retry to ToolRegistry
-            result = await registry.execute(
-                name=tool_name,
-                arguments=arguments,
-                groups=tool_groups,
-            )
+            try:
+                result = await registry.execute(
+                    name=tool_name,
+                    arguments=arguments,
+                    groups=tool_groups,
+                )
+            except Exception as exc:
+                # Record the tool-level exception
+                state["trace"].add_event(
+                    "tool_exception",
+                    tool=tool_name,
+                    error_type=type(exc).__name__,
+                )
+
+                # Record that the tool node did not complete successfully
+                state["trace"].add_event(
+                    "node_failed",
+                    node="tool",
+                    error_type=type(exc).__name__,
+                )
+
+                raise
+
+            # Record the completion status of the tool execution
+            state["trace"].add_event(
+                "tool_completed",
+                tool=tool_name,
+                success=result.success,
+            )  
+
+            # Record an explicit failure event when the tool reports failure
+            if not result.success:
+                state["trace"].add_event(
+                    "tool_failed",
+                    tool=tool_name,
+                )
 
             # Add the tool result to the conversation history
             messages.append(
@@ -98,6 +149,12 @@ def create_tool_node(
                 }
             )
 
+        # Record the completion of the tool node
+        state["trace"].add_event(
+            "node_completed",
+            node="tool",
+        )
+                
         # Return the updated state without mutating the input state
         return {
             "messages": messages,
@@ -114,6 +171,13 @@ def create_planner_node(
 ) -> Callable:
     # Create a node that breaks a complex request into executable steps
     async def planner_node(state: LangGraphState) -> dict:
+
+        # Record the start of the planner node
+        state["trace"].add_event(
+            "node_started",
+            node="planner",
+        )
+
         user_message = state["original_request"]
         tools = registry.get_tool_schemas(
             groups=tool_groups,
@@ -171,6 +235,14 @@ def create_planner_node(
             for tool_name in plan_result.tool_names
         )
 
+        # Record the plan produced by the planner
+        state["trace"].add_event(
+            "node_completed",
+            node="planner",
+            plan=plan_result.steps,
+            tool_names=plan_result.tool_names,
+        )
+
         return {
             "plan": plan_result.steps,
             "tool_names": plan_result.tool_names,
@@ -188,6 +260,14 @@ def create_executor_node(
 ) -> Callable:
     # Create a node that executes the current item in the plan
     async def executor_node(state: LangGraphState) -> dict:
+
+        # Record the start of the executor node
+        state["trace"].add_event(
+            "node_started",
+            node="executor",
+            current_step=state["current_step"],
+        )
+
         current_step = state["current_step"]
         plan = state["plan"]
         # Protect the executor from an invalid plan position
@@ -261,6 +341,13 @@ def create_executor_node(
             if result:
                 step_results.append(result)
 
+        # Record the completion of the executor node
+        state["trace"].add_event(
+            "node_completed",
+            node="executor",
+            current_step=state["current_step"],
+        )        
+
         return {
             "messages": [
                 *messages,
@@ -277,6 +364,24 @@ def create_executor_node(
 def advance_plan_node(
     state: LangGraphState,
 ) -> dict:
+
+    # Record the start of the advance node
+    state["trace"].add_event(
+        "node_started",
+        node="advance",
+        current_step=state["current_step"],
+    )
+
+    # Calculate the next plan position
+    next_step = state["current_step"] + 1
+
+    # Record the completion of the advance node
+    state["trace"].add_event(
+        "node_completed",
+        node="advance",
+        current_step=next_step,
+    )
+
     # Move to the next item in the execution plan
     return {
         "current_step": state["current_step"] + 1,
@@ -291,9 +396,21 @@ def create_final_node(
     # Create a node that combines completed plan results
     async def final_node(state: LangGraphState) -> dict:
 
+        # Record the start of the final node
+        state["trace"].add_event(
+            "node_started",
+            node="final",
+        )
+ 
 
         # Stop only when approval was required and the user rejected the plan
         if state["requires_approval"] and not state["approval"]:
+            # Record the completion of the final node
+            state["trace"].add_event(
+                "node_completed",
+                node="final",
+            )
+
             return {
                 "messages": [
                     *state["messages"],
@@ -345,6 +462,12 @@ def create_final_node(
 
         assistant_message = response["message"]
 
+        # Record the completion of the final node
+        state["trace"].add_event(
+            "node_completed",
+            node="final",
+        )
+
         return {
             "messages": [
                 *state["messages"],
@@ -361,6 +484,14 @@ def create_reviewer_node(
 ) -> Callable:
     # Create a node that evaluates the result of the current plan step
     async def reviewer_node(state: LangGraphState) -> dict:
+
+        # Record the start of the reviewer node
+        state["trace"].add_event(
+            "node_started",
+            node="reviewer",
+            current_step=state["current_step"],
+        )
+
         current_step = state["current_step"]
         task = state["plan"][current_step]
 
@@ -400,6 +531,13 @@ def create_reviewer_node(
 
         review = ReviewResult.model_validate_json(content)
 
+        # Record the completion of the reviewer node
+        state["trace"].add_event(
+            "node_completed",
+            node="reviewer",
+            current_step=state["current_step"],
+            success=review.success,
+        )
         return {
             "step_success": review.success,
             "review_feedback": review.feedback,
@@ -416,6 +554,13 @@ def create_replanner_node(
 ) -> Callable:
     # Create a node that rebuilds the remaining plan after a failed step
     async def replanner_node(state: LangGraphState) -> dict:
+
+        # Record the start of the replan node
+        state["trace"].add_event(
+            "node_started",
+            node="replan",
+            replan_count=state["replan_count"],
+        )
 
         current_step = state["current_step"]
 
@@ -469,6 +614,14 @@ def create_replanner_node(
 
         new_remaining_plan = plan_result.steps
 
+        # Record the completion of the replan node
+        state["trace"].add_event(
+            "node_completed",
+            node="replan",
+            replan_count=state["replan_count"] + 1,
+            plan=plan_result.steps,
+        )
+
         return {
         "plan": [
             *completed_plan,
@@ -486,12 +639,23 @@ def create_replanner_node(
     return replanner_node
 
 def approval_node(state: LangGraphState) -> dict:
+
+    # Record that the workflow is waiting for human approval
+    state["trace"].add_event(
+        "approval_requested",
+    ) 
+
     # Pause the workflow and wait for external input
     decision = interrupt(
         {
             "type": "approval",
             "message": "Do you want to continue?",
         } 
+    )
+    # Record the human approval decision after the workflow resumes
+    state["trace"].add_event(
+        "approval_resolved",
+        approved=bool(decision),
     )
 
     return {  
