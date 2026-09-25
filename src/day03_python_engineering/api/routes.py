@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Any
- 
+from fastapi.responses import StreamingResponse
+
+from day03_python_engineering.agent.stream_event import (
+    serialize_stream_event,
+)
 from day03_python_engineering.api.dependencies import (
     create_agent,
     get_checkpointer,
@@ -16,7 +20,10 @@ from day03_python_engineering.rag.result import RAGResponse
 from day03_python_engineering.rag.service import RAGService
 from src.day03_python_engineering.memory.service import MemoryService
 from day03_python_engineering.agent.result import AgentRunResult
-
+from day03_python_engineering.agent.stream_event import (
+    AgentStreamEvent,
+    serialize_stream_event,
+)
 
 router = APIRouter()
 
@@ -143,6 +150,78 @@ async def chat(
 
     return build_chat_response(result)
 
+@router.post("/chat/stream")
+async def chat_stream(
+    request: ChatRequest,
+    session_manager: SessionManager = Depends(get_session_manager),
+    memory_service: MemoryService = Depends(get_memory_service),
+    checkpointer=Depends(get_checkpointer),
+):
+    # Stream public agent events to the client
+    async def event_generator():
+        async with session_manager.lock(request.session_id):
+            agent = session_manager.get(request.session_id)
+
+            if agent is None:
+                messages = await session_manager.load_messages(
+                    request.session_id
+                )
+
+                agent = create_agent(
+                    checkpointer=checkpointer,
+                )
+
+                if messages is not None:
+                    agent.messages = messages
+
+            # Load long-term memory for the current user
+            memory = await memory_service.get_memory(request.user_id)
+            memory_prompt = memory.to_prompt()
+            agent.set_user_memory(memory_prompt)
+
+            # Track whether the workflow completed successfully
+            completed = False
+
+        # Stream agent workflow events
+        try:
+            # Stream agent workflow events
+            async for event in agent.stream(
+                user_message=request.message,
+                session_id=request.session_id,
+            ):
+                if event.event == "completed":
+                    completed = True
+
+                yield serialize_stream_event(event)
+
+        except Exception:
+            # Return a safe public error without exposing internal details
+            error_event = AgentStreamEvent(
+                event="error",
+                data={
+                    "message": "Agent workflow failed.",
+                },
+            )
+            yield serialize_stream_event(error_event)
+            return
+
+            # Persist conversation data only after successful completion
+        if completed:
+            await session_manager.set(
+                request.session_id,
+                agent,
+            )
+
+            await memory_service.process_message(
+                user_id=request.user_id,
+                message=request.message,
+            )
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
+
 
 
 @router.delete("/sessions/{session_id}")
@@ -238,3 +317,4 @@ def build_chat_response(result: AgentRunResult) -> ChatResponse:
             thread_id=result.thread_id,
         ),
     )
+

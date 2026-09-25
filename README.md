@@ -495,3 +495,19 @@ Deterministic facts → Code; Semantic judgment → LLM.
 - Added prompt-injection boundaries to Executor and Final prompts
 - Kept tool permissions and human approval as deterministic security boundaries
 - Added unit tests for final output validation and guardrail behavior
+
+
+## Day 20 - Agent Streaming
+
+- Added workflow event streaming with LangGraph `astream()`
+- Added a public `AgentStreamEvent` model
+- Added a mapping layer between internal LangGraph state and public stream events
+- Added SSE serialization for streaming events
+- Added `POST /chat/stream` with FastAPI `StreamingResponse`
+- Added workflow events for planning, execution, tools, review, completion, approval, and errors
+- Added final answer delivery through the `completed` event
+- Preserved conversation history after successful streaming
+- Added HITL `approval_required` streaming support
+- Prevented internal workflow state and exception details from leaking through the streaming API
+- Added automated tests for stream event mapping and SSE serialization
+- Kept HITL resume on the existing `/chat/resume` endpoint for the initial MVP

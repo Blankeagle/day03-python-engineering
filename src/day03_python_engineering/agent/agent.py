@@ -7,7 +7,10 @@ from day03_python_engineering.request_context import request_id_var
 from day03_python_engineering.tools.result import ToolErrorCode, ToolResult
 from day03_python_engineering.agent.result import AgentRunResult
 from langgraph.types import Command
-
+from day03_python_engineering.agent.stream_event import (
+    AgentStreamEvent,
+    map_stream_chunk,
+)
 from day03_python_engineering.workflow.langgraph_workflow import (
     create_agent_graph,
 )
@@ -20,7 +23,7 @@ from day03_python_engineering.observability.trace import AgentTrace
 logger = logging.getLogger(__name__)
 
 class Agent:
-    def __init__(
+    def __init__( 
         self,
         client: OllamaClient,
         registry: ToolRegistry,
@@ -132,7 +135,7 @@ class Agent:
 
             # Make the trace available to every workflow node
             "trace": trace,
-            
+
             # No tool has been executed for the initial plan step
             "last_tool_success": None,
 
@@ -295,3 +298,111 @@ class Agent:
             answer=final_answer,
             thread_id=thread_id,
         )
+
+    async def stream(
+        self,
+        user_message: str,
+        session_id: str,
+    ):
+        # Stream workflow events while the agent is running
+        async for event in self._stream(
+            user_message=user_message,
+            session_id=session_id,
+        ):
+            yield event
+
+    async def _stream(
+        self,
+        user_message: str,
+        session_id: str,
+    ):
+        # Add the new user message to the conversation history
+        self.messages.append(
+            {
+                "role": "user",
+                "content": user_message,
+            }
+        )
+
+        # Create a unique checkpoint thread for this workflow execution
+        thread_id = f"{session_id}:{uuid4()}"
+
+        # Keep the latest workflow thread ID for checkpoint inspection
+        self.last_thread_id = thread_id
+
+        # Create one trace for this workflow execution
+        trace = AgentTrace(
+            thread_id=thread_id,
+        )
+
+        # Keep the trace accessible after the workflow execution
+        self.last_trace = trace
+
+        # Build the initial workflow state
+        initial_state = {
+            "original_request": user_message,
+            "messages": self.messages,
+            "tool_calls": [],
+            "tool_names": [],
+            "plan": [],
+            "current_step": 0,
+            "step_results": [],
+            "step_success": True,
+            "review_feedback": "",
+            "replan_count": 0,
+            "approval": False,
+            "requires_approval": False,
+            "trace": trace,
+            "last_tool_success": None,
+            "step": 0,
+        }
+
+        # Keep the final answer so it can be saved after streaming completes
+        final_answer: str | None = None
+        
+
+        # Stream LangGraph state updates as each node completes
+        async for chunk in self.graph.astream(
+            initial_state,
+            config={
+                "recursion_limit": self.graph_recursion_limit,
+                "configurable": {
+                    "thread_id": thread_id,
+                },
+            },
+            stream_mode="updates",
+        ):
+            # Handle workflow interruption for human approval
+            if "__interrupt__" in chunk:
+                interrupts = chunk["__interrupt__"]
+
+                if interrupts:
+                    yield AgentStreamEvent(
+                        event="approval_required",
+                        data={
+                            "thread_id": thread_id,
+                            "interrupt": interrupts[0].value,
+                        },
+                    )
+
+                return
+
+            
+            # Convert the internal LangGraph update into a public stream event
+            event = map_stream_chunk(chunk)
+
+            # Save the final assistant answer to the conversation history
+            if final_answer:
+                self.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": final_answer,
+                    }
+                )
+
+                # Trim old conversation messages
+                self._trim_messages()            
+
+            # Ignore internal workflow updates that are not part of the public API
+            if event is not None:
+                yield event
