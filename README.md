@@ -471,6 +471,7 @@ Planner → Executor → Tool → Reviewer → Final
 
 
 ## Day 18 - Agent Reliability
+Deterministic facts → Code; Semantic judgment → LLM.
 
 - Improved reviewer reliability by separating deterministic tool status from semantic task evaluation
 - Added `last_tool_success` to workflow state
@@ -481,3 +482,16 @@ Planner → Executor → Tool → Reviewer → Final
 - Added aggregated status handling for multiple tool calls
 - Added reviewer, replanner, and tool-node reliability tests
 - Verified real Agent evaluation without unnecessary replanning for successful time-tool execution
+
+
+## Day 19 - Agent Guardrails and Output Validation
+
+- Added deterministic final output validation
+- Added `InvalidAgentOutputError` for invalid agent responses
+- Rejected empty, non-string, and excessively large final outputs
+- Extracted output validation into a dedicated `guardrails` module
+- Added trace events for final output validation failures
+- Treated tool and RAG results as untrusted data rather than instructions
+- Added prompt-injection boundaries to Executor and Final prompts
+- Kept tool permissions and human approval as deterministic security boundaries
+- Added unit tests for final output validation and guardrail behavior
