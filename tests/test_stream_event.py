@@ -72,3 +72,19 @@ def test_map_final_chunk_includes_answer():
     assert event.data == {
         "answer": "The current time is 12:30 PM.",
     }
+
+def test_serialize_token_stream_event():
+    # Create a public token stream event
+    event = AgentStreamEvent(
+        event="token",
+        data={
+            "content": "Hello",
+        },
+    )
+
+    # Serialize the token using the SSE protocol
+    result = serialize_stream_event(event)
+
+    assert "event: token\n" in result
+    assert '"content": "Hello"' in result
+    assert result.endswith("\n\n")    

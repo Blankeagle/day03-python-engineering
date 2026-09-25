@@ -98,16 +98,12 @@ async def test_final_node_marks_step_results_as_untrusted_data():
     captured_messages = []
 
     class CapturingClient:
-        async def chat(self, *args, **kwargs):
+         async def chat_stream(self, *args, **kwargs):
             # Capture the prompt sent to the final LLM
             captured_messages.extend(kwargs["messages"])
 
-            return {
-                "message": {
-                    "role": "assistant",
-                    "content": "Safe final answer.",
-                }
-            }
+            # Simulate a streamed final response from the LLM
+            yield "Safe final answer."
 
     final_node = create_final_node(
         client=CapturingClient(),

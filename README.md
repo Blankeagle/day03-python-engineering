@@ -511,3 +511,37 @@ Deterministic facts → Code; Semantic judgment → LLM.
 - Prevented internal workflow state and exception details from leaking through the streaming API
 - Added automated tests for stream event mapping and SSE serialization
 - Kept HITL resume on the existing `/chat/resume` endpoint for the initial MVP
+
+
+### Day 21 — Token Streaming
+
+Implemented token-level streaming for final agent responses.
+
+- Added `OllamaClient.chat_stream()` using Ollama streaming responses
+- Streamed only assistant `content`, excluding model `thinking`
+- Added LangGraph custom streaming with `get_stream_writer()`
+- Combined `updates` and `custom` LangGraph stream modes
+- Added public `token` events through `AgentStreamEvent`
+- Streamed tokens to clients through the existing SSE endpoint
+- Preserved the final `completed` event with the full answer
+- Kept final output validation after rebuilding the complete response
+- Updated Final Node tests for the streaming LLM interface
+
+Streaming flow:
+
+```text
+Ollama
+  ↓
+OllamaClient.chat_stream()
+  ↓
+Final Node
+  ↓
+LangGraph custom stream
+  ↓
+Agent._stream()
+  ↓
+AgentStreamEvent("token")
+  ↓
+FastAPI SSE
+  ↓
+Client

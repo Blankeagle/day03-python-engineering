@@ -362,7 +362,7 @@ class Agent:
         
 
         # Stream LangGraph state updates as each node completes
-        async for chunk in self.graph.astream(
+        async for mode, data in self.graph.astream(
             initial_state,
             config={
                 "recursion_limit": self.graph_recursion_limit,
@@ -370,11 +370,12 @@ class Agent:
                     "thread_id": thread_id,
                 },
             },
-            stream_mode="updates",
+            stream_mode=["updates", "custom"],
         ):
+
             # Handle workflow interruption for human approval
-            if "__interrupt__" in chunk:
-                interrupts = chunk["__interrupt__"]
+            if mode == "updates" and "__interrupt__" in data:
+                interrupts = data["__interrupt__"]
 
                 if interrupts:
                     yield AgentStreamEvent(
@@ -387,9 +388,21 @@ class Agent:
 
                 return
 
-            
+            # Convert custom LangGraph token events into public agent events
+            if mode == "custom":
+                if data.get("type") == "token":
+                    yield AgentStreamEvent(
+                        event="token",
+                        data={
+                            "content": data["content"],
+                        },
+                    )
+
+                continue
+
+        
             # Convert the internal LangGraph update into a public stream event
-            event = map_stream_chunk(chunk)
+            event = map_stream_chunk(data)
 
             # Save the final assistant answer to the conversation history
             if final_answer:

@@ -17,7 +17,7 @@ async def test_agent_stream_manual():
 
     # Stream workflow updates as the agent runs
     async for chunk in agent.stream(
-        user_message="Delete all my saved data.",
+        user_message="What time is it?",
         session_id="stream-approval-test",
     ):
         print("STREAM CHUNK:", chunk)

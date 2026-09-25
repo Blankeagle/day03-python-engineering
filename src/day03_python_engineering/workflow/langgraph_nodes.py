@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from langgraph.types import interrupt
 from langgraph.types import Command
 from day03_python_engineering.exceptions import InvalidAgentOutputError
+from langgraph.config import get_stream_writer
 
 class ReviewResult(BaseModel):
     # Indicate whether the current plan step completed successfully
@@ -481,17 +482,39 @@ def create_final_node(
         ]
 
 
-        # Generate one final answer from all completed step results
-        response = await client.chat(
+        # Get the LangGraph writer for custom streaming events
+        try:
+            # Use LangGraph's custom stream writer when running inside the graph
+            writer = get_stream_writer()
+        except RuntimeError:
+            # Direct unit tests may call this node outside a LangGraph context
+            writer = None
+
+        # Collect streamed tokens so the final answer can still be validated
+        content_parts: list[str] = []
+
+        # Stream the final answer token by token
+        async for token in client.chat_stream(
             messages=messages,
-        )
+        ):
+            content_parts.append(token)
 
-        assistant_message = response["message"]
+            if writer is not None:
+                # Publish the token only when a LangGraph stream is active
+                writer(
+                    {
+                        "type": "token",
+                        "content": token,
+                    }
+                )
 
-      
+        # Rebuild the complete assistant message after streaming finishes
+        content = "".join(content_parts)
 
-        # Validate the final assistant output before returning it to the user
-        content = assistant_message.get("content")
+        assistant_message = {
+            "role": "assistant",
+            "content": content,
+        }
 
         try:
             # Validate the final output before returning it to the user
