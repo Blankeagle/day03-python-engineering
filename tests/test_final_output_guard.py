@@ -6,6 +6,10 @@ from day03_python_engineering.workflow.langgraph_nodes import (
     create_final_node,
 )
 
+from day03_python_engineering.workflow.langgraph_nodes import (
+    build_final_context,
+    build_memory_context,
+)
 
 class EmptyOutputClient:
     async def chat_stream(self, *args, **kwargs):
@@ -28,6 +32,7 @@ async def test_final_node_rejects_empty_output():
         "approval": False,
         "step": 0,
         "trace": AgentTrace(thread_id="test-thread"),
+        "user_memory": "",
     }
 
     with pytest.raises(
@@ -56,9 +61,25 @@ async def test_final_node_accepts_valid_output():
         "approval": False,
         "step": 0,
         "trace": AgentTrace(thread_id="test-thread"),
+        "user_memory": "",
     }
 
     result = await final_node(state)
 
     assert result["messages"][-1]["content"] == "The current time is 10:00."
     assert result["step"] == 1
+
+
+def test_build_memory_context_includes_user_memory():
+    context = build_memory_context(
+        "The user prefers concise explanations."
+    )
+
+    assert "Long-term information about the user:" in context
+    assert "The user prefers concise explanations." in context
+    assert "only when it is relevant" in context
+
+def test_build_memory_context_returns_empty_string_for_empty_memory():
+    context = build_memory_context("")
+
+    assert context == ""

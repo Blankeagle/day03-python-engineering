@@ -119,6 +119,7 @@ async def test_final_node_marks_step_results_as_untrusted_data():
         "approval": False,
         "step": 0,
         "trace": AgentTrace(thread_id="test-thread"),
+        "user_memory": "",
     }
 
     await final_node(state)

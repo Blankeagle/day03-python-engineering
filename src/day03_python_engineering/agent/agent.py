@@ -19,6 +19,7 @@ from langgraph.errors import GraphRecursionError
 
 from day03_python_engineering.exceptions import AgentWorkflowError
 from day03_python_engineering.observability.trace import AgentTrace
+from day03_python_engineering.workflow.langgraph_state import LangGraphState
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,8 @@ class Agent:
         self.base_system_prompt = (
             "You are a helpful AI assistant."
         )
+        # Store long-term user memory separately from conversation history
+        self.user_memory = ""
 
         self.messages = [
             {
@@ -111,36 +114,10 @@ class Agent:
         self.last_trace = trace
 
         # Build the initial state for LangGraph
-        initial_state = {
-            "original_request": user_message,
-            "messages": self.messages,
-            "tool_calls": [],
-            "tool_names": [],
-
-            "plan": [],
-            "current_step": 0,
-            "step_results": [],
-
-            # No step has been reviewed yet
-            "step_success": True,
-
-            # No review feedback exists at startup
-            "review_feedback": "",
-            "replan_count": 0,
-
-            # No approval decision has been made yet
-            "approval": False,
-            # No human approval is required by default
-            "requires_approval": False,
-
-            # Make the trace available to every workflow node
-            "trace": trace,
-
-            # No tool has been executed for the initial plan step
-            "last_tool_success": None,
-
-            "step": 0,
-        }
+        initial_state = self._build_initial_state(
+            user_message=user_message,
+            trace=trace,
+        )
 
 
 
@@ -216,33 +193,22 @@ class Agent:
         self,
         memory_prompt: str,
     ) -> None:
-        content = self.messages[0]["content"]
-    
-        if memory_prompt:
-            content += (
-                "\n\nLong-term information about the user:\n"
-                f"{memory_prompt}\n\n"
-                "Use the long-term user information above when the user "
-                "asks about themselves. "
-                "Do not search the knowledge base for information that is "
-                "already available in the user's long-term memory."
-            )
-
-        self.messages[0]["content"] = content
+        # Store long-term memory separately from conversation history
+        self.user_memory = memory_prompt
 
 
-    async def get_graph_state(
-        self,
-        thread_id: str,
-    ):
-        # Read the latest checkpoint for the workflow execution
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-            },
-        }
+        async def get_graph_state(
+            self,
+            thread_id: str,
+        ):
+            # Read the latest checkpoint for the workflow execution
+            config = {
+                "configurable": {
+                    "thread_id": thread_id,
+                },
+            }
 
-        return await self.graph.aget_state(config)
+            return await self.graph.aget_state(config)
 
 
     async def resume(
@@ -339,23 +305,10 @@ class Agent:
         self.last_trace = trace
 
         # Build the initial workflow state
-        initial_state = {
-            "original_request": user_message,
-            "messages": self.messages,
-            "tool_calls": [],
-            "tool_names": [],
-            "plan": [],
-            "current_step": 0,
-            "step_results": [],
-            "step_success": True,
-            "review_feedback": "",
-            "replan_count": 0,
-            "approval": False,
-            "requires_approval": False,
-            "trace": trace,
-            "last_tool_success": None,
-            "step": 0,
-        }
+        initial_state = self._build_initial_state(
+            user_message=user_message,
+            trace=trace,
+        )
 
         # Keep the final answer so it can be saved after streaming completes
         final_answer: str | None = None
@@ -419,3 +372,42 @@ class Agent:
             # Ignore internal workflow updates that are not part of the public API
             if event is not None:
                 yield event
+
+
+    def _build_initial_state(
+        self,
+        user_message: str,
+        trace: AgentTrace,
+    ) -> LangGraphState:
+        # Build the shared initial state for all workflow execution modes
+        return {
+            "original_request": user_message,
+
+            # Keep workflow messages isolated from persistent session history
+            "messages": list(self.messages),
+
+            # Keep clean conversation context separate from workflow execution
+            "conversation_messages": list(self.messages),
+
+            # Keep long-term memory as an independent context source
+            "user_memory": self.user_memory,
+
+            "tool_calls": [],
+            "tool_names": [],
+
+            "plan": [],
+            "current_step": 0,
+            "step_results": [],
+
+            "step_success": True,
+            "review_feedback": "",
+            "replan_count": 0,
+
+            "approval": False,
+            "requires_approval": False,
+
+            "trace": trace,
+            "last_tool_success": None,
+
+            "step": 0,
+        }

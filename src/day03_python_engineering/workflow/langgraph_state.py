@@ -5,8 +5,11 @@ class LangGraphState(TypedDict):
     # Store the original request for the current workflow execution
     original_request: str
 
-    # Store the conversation history shared across graph nodes
+    # Store messages used internally during the current workflow execution
     messages: list[dict[str, Any]]
+
+    # Store clean user-assistant conversation context for LLM context building
+    conversation_messages: list[dict[str, Any]]
 
     # Store tool calls requested by the latest LLM response
     tool_calls: list[dict[str, Any]]
@@ -46,4 +49,6 @@ class LangGraphState(TypedDict):
 
     # Store the latest tool execution status
     last_tool_success: bool | None
-    
+
+    # Store long-term user memory separately from conversation context
+    user_memory: str
