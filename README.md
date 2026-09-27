@@ -545,3 +545,13 @@ AgentStreamEvent("token")
 FastAPI SSE
   ↓
 Client
+
+## Day 22 — processing context
+
+- separate conversation context from workflow messages
+- separate long-term memory from system prompt
+- add memory context builder
+- add recent conversation context for planner
+- add final context builder and context budget
+- share initial state construction between run modes
+- add context-related tests
