@@ -4,6 +4,10 @@ from day03_python_engineering.observability.trace import AgentTrace
 from day03_python_engineering.workflow.langgraph_nodes import (
     create_replanner_node,
 )
+from day03_python_engineering.workflow.plan import (
+    PlanStep,
+    StepStatus,
+)
 
 
 class FakeClient:
@@ -34,7 +38,14 @@ async def test_replanner_resets_last_tool_success():
 
     state = {
         "original_request": "Complete the task",
-        "plan": ["Failed step"],
+       "plan": [
+            PlanStep(
+                id="step_1",
+                description="Get the current time.",
+                status=StepStatus.FAILED,
+                error="The required tool execution failed.",
+            ),
+        ],
         "current_step": 0,
         "review_feedback": "The tool execution failed.",
         "replan_count": 0,

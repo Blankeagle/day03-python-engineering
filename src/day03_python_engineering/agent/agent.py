@@ -397,7 +397,6 @@ class Agent:
 
             "plan": [],
             "current_step": 0,
-            "step_results": [],
 
             "step_success": True,
             "review_feedback": "",

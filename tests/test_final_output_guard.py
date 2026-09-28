@@ -5,6 +5,8 @@ from day03_python_engineering.observability.trace import AgentTrace
 from day03_python_engineering.workflow.langgraph_nodes import (
     create_final_node,
 )
+from day03_python_engineering.workflow.plan import PlanStep,StepStatus
+
 
 from day03_python_engineering.workflow.langgraph_nodes import (
     build_final_context,
@@ -26,7 +28,15 @@ async def test_final_node_rejects_empty_output():
 
     state = {
         "original_request": "What time is it?",
-        "step_results": ["The current time is 10:00."],
+        "plan": [
+            PlanStep(
+                id="step_1",
+                description="Get the current time.",
+                status=StepStatus.COMPLETED,
+                tool_names=["get_current_time"],
+                result="The current time is 10:00.",
+            )
+        ],
         "messages": [],
         "requires_approval": False,
         "approval": False,
@@ -55,7 +65,15 @@ async def test_final_node_accepts_valid_output():
 
     state = {
         "original_request": "What time is it?",
-        "step_results": ["The current time is 10:00."],
+        "plan": [
+            PlanStep(
+                id="step_1",
+                description="Get the current time.",
+                status=StepStatus.COMPLETED,
+                tool_names=["get_current_time"],
+                result="The current time is 10:00.",
+            )
+        ],
         "messages": [],
         "requires_approval": False,
         "approval": False,

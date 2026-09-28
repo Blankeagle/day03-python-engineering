@@ -13,7 +13,7 @@ def evaluate_case(
     case: EvalCase,
     actual_tools: list[str],
     actual_approval: bool,
-    tool_execution_success: bool | None = True,
+    tool_execution_success: bool | None = None,
 ) -> EvalResult:
     # Check whether the planner selected the expected tools
     tool_selection_correct = (
@@ -191,9 +191,7 @@ def evaluate_trace(
     case: EvalCase,
     trace: AgentTrace,
 ) -> EvalResult:
-    behavior = extract_actual_behavior(
-        trace
-    )
+    behavior = extract_actual_behavior(trace)
 
     return evaluate_case(
         case=case,

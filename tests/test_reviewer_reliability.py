@@ -2,7 +2,7 @@ import pytest
 
 from day03_python_engineering.observability.trace import AgentTrace
 from day03_python_engineering.workflow.langgraph_nodes import create_reviewer_node
-
+from day03_python_engineering.workflow.plan import PlanStep,StepStatus
 
 class FakeClient:
     async def chat(self, *args, **kwargs):
@@ -15,9 +15,16 @@ async def test_reviewer_skips_llm_when_tool_failed():
     reviewer = create_reviewer_node(FakeClient())
 
     state = {
-        "plan": ["Get the current time"],
+        "plan": [
+            PlanStep(
+                id="step_1",
+                description="Get the current time.",
+                status=StepStatus.FAILED,
+                tool_names=["get_current_time"],
+                error="Failed to get the current time.",
+            )
+        ],
         "current_step": 0,
-        "step_results": ["Failed to get the current time."],
         "last_tool_success": False,
         "step": 0,
         "trace": AgentTrace(thread_id="test-thread"),
@@ -26,7 +33,7 @@ async def test_reviewer_skips_llm_when_tool_failed():
     result = await reviewer(state)
 
     assert result["step_success"] is False
-    assert result["review_feedback"] == "The required tool execution failed."
+    assert result["review_feedback"] =="Failed to get the current time."
     assert result["step"] == 1
 
 
@@ -47,9 +54,16 @@ async def test_reviewer_uses_llm_when_tool_succeeded():
     reviewer = create_reviewer_node(SuccessfulReviewClient())
 
     state = {
-        "plan": ["Get the current time"],
+       "plan": [
+            PlanStep(
+                id="step_1",
+                description="Get the current time.",
+                status=StepStatus.COMPLETED,
+                tool_names=["get_current_time"],
+                result="The current time is 20:11.",
+            )
+        ],
         "current_step": 0,
-        "step_results": ["The current time is 20:11."],
         "last_tool_success": True,
         "step": 0,
         "trace": AgentTrace(thread_id="test-thread"),
