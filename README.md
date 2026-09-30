@@ -555,3 +555,45 @@ Client
 - add final context builder and context budget
 - share initial state construction between run modes
 - add context-related tests
+
+
+
+
+## MCP Integration
+
+The agent supports external tools through the Model Context Protocol (MCP).
+
+MCP tools are dynamically discovered and adapted into the existing `ToolRegistry`, allowing the agent workflow to use local tools and MCP tools through the same execution interface.
+
+### Architecture
+
+```text
+User Request
+     |
+     v
+FastAPI
+     |
+     v
+Agent / LangGraph
+     |
+     v
+Planner
+     |
+     v
+ToolRegistry
+     |
+     +-------------------+
+     |                   |
+     v                   v
+Local Tools          MCP Tools
+                         |
+                         v
+                    MCP Adapter
+                         |
+                         v
+                    MCP Client
+                         |
+                  JSON-RPC / stdio
+                         |
+                         v
+                    MCP Server
