@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Any
 from fastapi.responses import StreamingResponse
+from fastapi import Request
 
 from day03_python_engineering.agent.stream_event import (
     serialize_stream_event,
@@ -12,9 +13,13 @@ from day03_python_engineering.api.dependencies import (
     get_session_manager,
 )
 from day03_python_engineering.session.manager import SessionManager
+from day03_python_engineering.tools.registry import ToolRegistry
+
+
 from day03_python_engineering.api.dependencies import (
     get_rag_service ,
-    get_memory_service
+    get_memory_service,
+    get_tool_registry
     )
 from day03_python_engineering.rag.result import RAGResponse
 from day03_python_engineering.rag.service import RAGService
@@ -119,30 +124,44 @@ async def chat(
     session_manager: SessionManager = Depends(get_session_manager),
     memory_service: MemoryService = Depends(get_memory_service),
     checkpointer=Depends(get_checkpointer),
-
+    registry: ToolRegistry = Depends(get_tool_registry),
 ):
     async with session_manager.lock(request.session_id):
         agent = session_manager.get(request.session_id)
 
         if agent is None:
-            messages = await session_manager.load_messages(request.session_id)
-            agent = create_agent(checkpointer=checkpointer,)
+            messages = await session_manager.load_messages(
+                request.session_id
+            )
+
+            # Use the application registry containing local and MCP tools
+            agent = create_agent(
+                checkpointer=checkpointer,
+                registry=registry,
+            )
+
             if messages is not None:
                 agent.messages = messages
 
-        # set long term memory for the agent
-        memory = await memory_service.get_memory(request.user_id)
+        # Set long-term memory for the agent
+        memory = await memory_service.get_memory(
+            request.user_id
+        )
         memory_prompt = memory.to_prompt()
         agent.set_user_memory(memory_prompt)
 
-        result = await agent.run(request.message,request.session_id)
+        result = await agent.run(
+            request.message,
+            request.session_id,
+        )
 
-        # save the session history after processing the message
-        await session_manager.set(request.session_id, agent)
+        # Save the session history after processing the message
+        await session_manager.set(
+            request.session_id,
+            agent,
+        )
 
-      
-
-        # update long term memory based on the user input
+        # Update long-term memory based on the user input
         await memory_service.process_message(
             user_id=request.user_id,
             message=request.message,
@@ -156,6 +175,7 @@ async def chat_stream(
     session_manager: SessionManager = Depends(get_session_manager),
     memory_service: MemoryService = Depends(get_memory_service),
     checkpointer=Depends(get_checkpointer),
+    registry: ToolRegistry = Depends(get_tool_registry),
 ):
     # Stream public agent events to the client
     async def event_generator():
@@ -167,15 +187,19 @@ async def chat_stream(
                     request.session_id
                 )
 
+                # Use the application registry containing local and MCP tools
                 agent = create_agent(
                     checkpointer=checkpointer,
+                    registry=registry,
                 )
 
                 if messages is not None:
                     agent.messages = messages
 
             # Load long-term memory for the current user
-            memory = await memory_service.get_memory(request.user_id)
+            memory = await memory_service.get_memory(
+                request.user_id
+            )
             memory_prompt = memory.to_prompt()
             agent.set_user_memory(memory_prompt)
 
@@ -184,7 +208,6 @@ async def chat_stream(
 
         # Stream agent workflow events
         try:
-            # Stream agent workflow events
             async for event in agent.stream(
                 user_message=request.message,
                 session_id=request.session_id,
@@ -205,7 +228,7 @@ async def chat_stream(
             yield serialize_stream_event(error_event)
             return
 
-            # Persist conversation data only after successful completion
+        # Persist conversation data only after successful completion
         if completed:
             await session_manager.set(
                 request.session_id,
@@ -221,7 +244,6 @@ async def chat_stream(
         event_generator(),
         media_type="text/event-stream",
     )
-
 
 
 @router.delete("/sessions/{session_id}")
@@ -261,6 +283,7 @@ async def resume_chat(
     request: ResumeRequest,
     session_manager: SessionManager = Depends(get_session_manager),
     checkpointer=Depends(get_checkpointer),
+    registry: ToolRegistry = Depends(get_tool_registry),
 ):
     # Protect the same session from concurrent modifications
     async with session_manager.lock(request.session_id):
@@ -270,9 +293,10 @@ async def resume_chat(
         if agent is None:
             agent = create_agent(
                 checkpointer=checkpointer,
+                registry=registry,
             )
 
-            # Restore the conversation history from Redis
+        # Restore the conversation history from Redis
         messages = await session_manager.load_messages(
             request.session_id,
         )
@@ -285,11 +309,13 @@ async def resume_chat(
             thread_id=request.thread_id,
             decision=request.decision,
         )
+
         # Save the updated conversation after resuming the workflow
         await session_manager.set(
             request.session_id,
             agent,
         )
+
     return build_chat_response(result)
 
 

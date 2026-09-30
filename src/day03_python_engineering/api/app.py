@@ -18,8 +18,13 @@ from day03_python_engineering.exceptions import (
 )
 from day03_python_engineering.logging_config import setup_logging
 from day03_python_engineering.request_context import request_id_var
-from day03_python_engineering.api.dependencies import get_rag_service
+from day03_python_engineering.api.dependencies import create_tool_registry
 from day03_python_engineering.rag.service import RAGService
+
+from mcp import StdioServerParameters
+
+from day03_python_engineering.mcp.provider import MCPToolProvider
+
 
 from day03_python_engineering.exceptions import AgentWorkflowError
 
@@ -50,10 +55,35 @@ async def lifespan(app: FastAPI):
         # Make the shared checkpointer available to API dependencies
         set_checkpointer(checkpointer)
 
+        # Initialize the RAG dependencies
         await initialize_rag()
 
-        yield
+        # Create a registry containing all local tools
+        registry = create_tool_registry()
 
+        # Configure the MCP server process
+        server = StdioServerParameters(
+            command="uv",
+            args=[
+                "run",
+                "python",
+                "-m",
+                "day03_python_engineering.mcp.server",
+            ],
+        )
+
+        # Keep the MCP client and server alive for the application lifetime
+        async with MCPToolProvider(
+            registry=registry,
+            server=server,
+        ):
+            # Store the registry containing both local and MCP tools
+            app.state.tool_registry = registry
+    
+            # FastAPI serves requests while execution is suspended here
+            yield
+
+        # Close the remaining application dependencies
         await close_dependencies()
 
 

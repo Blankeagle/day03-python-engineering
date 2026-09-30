@@ -27,6 +27,7 @@ def test_evaluate_case_passes_when_actual_matches_expected() -> None:
         case=case,
         actual_tools=["get_current_time"],
         actual_approval=False,
+        tool_execution_success=True,
     )
 
     assert result.name == "current_time"
@@ -38,7 +39,6 @@ def test_evaluate_case_passes_when_actual_matches_expected() -> None:
     assert result.execution_correct is True
     assert result.passed is True
 
-
 def test_evaluate_case_fails_when_tool_does_not_match() -> None:
     # Define the expected agent behavior
     case = EvalCase(
@@ -48,11 +48,13 @@ def test_evaluate_case_fails_when_tool_does_not_match() -> None:
         expected_approval=False,
     )
 
-    # Evaluate behavior with the wrong tool
+    # Evaluate behavior with the wrong tool,
+    # but assume that the selected tool executed successfully
     result = evaluate_case(
         case=case,
         actual_tools=["get_weather"],
         actual_approval=False,
+        tool_execution_success=True,
     )
 
     assert result.tool_selection_correct is False
@@ -99,9 +101,9 @@ def test_summarize_results_calculates_metrics() -> None:
             actual_approval=False,
             tool_selection_correct=False,
             approval_correct=True,
-            tool_execution_success=True,
             execution_correct=True,
             passed=False,
+            tool_execution_success=True,
         ),
         EvalResult(
             name="case_3",

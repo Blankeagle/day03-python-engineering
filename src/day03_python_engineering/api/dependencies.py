@@ -2,6 +2,7 @@ from functools import partial
 
 import httpx
 
+from fastapi import Request
 from day03_python_engineering.rag.embedding_client import EmbeddingClient
 from day03_python_engineering.rag.chroma_store import ChromaVectorStore
 from day03_python_engineering.rag.retriever import Retriever
@@ -53,6 +54,58 @@ _checkpointer = None
 def get_session_manager() -> SessionManager:
     return _session_manager
 
+def create_tool_registry() -> ToolRegistry:
+    # Create a new isolated tool registry
+    registry = ToolRegistry(
+        timeout_seconds=settings.tool_timeout_seconds,
+    )
+
+    # Register the local current-time tool
+    registry.register(
+        "get_current_time",
+        "获取当前时间",
+        get_current_time,
+        input_model=CurrentTimeInput,
+    )
+
+    # Register the destructive saved-data deletion tool
+    registry.register(
+        "delete_saved_data",
+        "Delete all saved user data. This is a destructive operation.",
+        delete_saved_data,
+        input_model=DeleteSavedDataInput,
+        allow_retry=False,
+        requires_approval=True,
+    )
+
+    # Register the local RAG knowledge-base search tool
+    registry.register(
+        name="search_knowledge_base",
+        description=(
+            "Search the internal knowledge base and answer questions "
+            "using the indexed documents."
+        ),
+        func=_rag_tool,
+        input_model=RAGQueryInput,
+        allow_retry=False,
+        groups={"general", "rag"},
+    )
+
+    # Register the local weather tool
+    registry.register(
+        "get_weather",
+        "获取指定城市天气",
+        partial(
+            get_weather,
+            client=_weather_client,
+        ),
+        input_model=WeatherInput,
+        allow_retry=True,
+    )
+
+    return registry
+
+
 
 _ollama_client = OllamaClient()
 _weather_client = httpx.AsyncClient(
@@ -63,23 +116,7 @@ _weather_client = httpx.AsyncClient(
         pool=5.0,
     )
 )
-_tool_registry = ToolRegistry(timeout_seconds=settings.tool_timeout_seconds)
-_tool_registry.register(
-    "get_current_time",
-    "获取当前时间",
-    get_current_time,
-    input_model=CurrentTimeInput,
-)
 
-_tool_registry.register(
-    "delete_saved_data",
-    "Delete all saved user data. This is a destructive operation.",
-    delete_saved_data,
-    input_model=DeleteSavedDataInput,
-    allow_retry=False,
-    requires_approval=True,
-
-)
 
 
 
@@ -105,29 +142,15 @@ def get_rag_service() -> RAGService:
     return _rag_service
 
 
-_tool_registry.register(
-    "get_weather",
-    "获取指定城市天气",
-    partial(get_weather, client=_weather_client),
-    input_model=WeatherInput,
-    allow_retry=True,
-)
+
 
 _rag_tool = partial(
     search_knowledge_base,
     rag_service=_rag_service,
 )
-_tool_registry.register(
-    name="search_knowledge_base",
-    description=(
-        "Search the internal knowledge base and answer questions "
-        "using the indexed documents."
-    ),
-    func=_rag_tool,
-    input_model=RAGQueryInput,
-    allow_retry=False,
-    groups={"general", "rag"},
-)
+
+# Create the default registry used by the application
+_tool_registry = create_tool_registry()
 
 
 
@@ -163,12 +186,25 @@ async def initialize_rag():
         Path("data")
     )
 
-def create_agent( checkpointer,tool_groups: set[str] | None = None) -> Agent:
- 
+
+
+
+def create_agent(
+    checkpointer,
+    tool_groups: set[str] | None = None,
+    registry: ToolRegistry | None = None,
+) -> Agent:
+    # Use the provided registry when one is injected.
+    # Fall back to the default application registry for normal usage.
+    active_registry = (
+        registry
+        if registry is not None
+        else _tool_registry
+    )
 
     return Agent(
         client=_ollama_client,
-        registry=_tool_registry,
+        registry=active_registry,
         checkpointer=checkpointer,
         tool_groups=tool_groups,
         max_steps=10,
@@ -192,3 +228,10 @@ def get_checkpointer():
         raise RuntimeError("LangGraph checkpointer is not initialized")
 
     return _checkpointer
+
+
+def get_tool_registry(
+    request: Request,
+) -> ToolRegistry:
+    # Return the tool registry initialized during application startup
+    return request.app.state.tool_registry

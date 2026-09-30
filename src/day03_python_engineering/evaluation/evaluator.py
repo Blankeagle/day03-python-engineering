@@ -164,11 +164,11 @@ def extract_actual_behavior(
                 event["tool"]
             )
 
-        # Detect the real approval event emitted by the workflow
+        # Detect approval requests
         if event["event"] == "approval_requested":
             approval_required = True
 
-        # Record tool execution outcomes
+        # Record completed tool execution results
         if event["event"] == "tool_completed":
             tool_execution_results.append(
                 event["success"]
@@ -178,20 +178,21 @@ def extract_actual_behavior(
         planned_tools=planned_tools,
         called_tools=called_tools,
         approval_required=approval_required,
-        # Distinguish "not executed" from successful execution
-        tool_execution_success = (
+        tool_execution_success=(
             all(tool_execution_results)
             if tool_execution_results
             else None
-        )
+        ),
     )
-
 
 def evaluate_trace(
     case: EvalCase,
     trace: AgentTrace,
 ) -> EvalResult:
-    behavior = extract_actual_behavior(trace)
+    behavior = extract_actual_behavior(
+        trace
+    )
+    print("EXTRACTED BEHAVIOR:", behavior)
 
     return evaluate_case(
         case=case,
