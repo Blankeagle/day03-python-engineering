@@ -597,3 +597,73 @@ Local Tools          MCP Tools
                          |
                          v
                     MCP Server
+
+
+
+
+## Docker
+
+The application can run with Docker Compose.
+
+### Architecture
+
+The Docker environment contains:
+
+- `agent` — FastAPI + LangGraph agent
+- `redis` — Redis 8 used for application data and LangGraph checkpoints
+- Ollama runs on the host machine and is accessed by the agent container
+
+```text
+Client
+  |
+  v
+FastAPI Agent Container
+  |
+  +----> Redis Container
+  |
+  +----> Host Ollama
+  |
+  +----> MCP Server subprocess
+
+
+Prerequisites
+Make sure the following are installed and running:
+- Docker
+- Docker Compose
+- Ollama
+The required Ollama models must also be available locally.
+
+Environment Variables
+Create a .env file with the required application configuration.
+Example:
+APP_NAME=Day4 AI Agent API
+DEBUG=false
+MODEL_NAME=<your-model>
+OLLAMA_BASE_URL=<your-ollama-url>
+
+Do not commit .env to Git.
+Docker Compose overrides Redis configuration so containers communicate through the internal Docker network.
+Build and Start
+docker compose up -d --build
+
+Check container status:
+docker compose ps
+
+Redis should report a healthy status.
+View Logs
+docker compose logs -f agent
+
+Test the API
+curl -X POST http://127.0.0.1:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "docker-test",
+    "user_id": "test-user",
+    "message": "What time is it now?"
+  }'
+
+Stop
+docker compose down
+
+To also remove Docker volumes:
+docker compose down -v

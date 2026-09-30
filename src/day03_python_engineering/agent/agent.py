@@ -312,7 +312,6 @@ class Agent:
 
         # Keep the final answer so it can be saved after streaming completes
         final_answer: str | None = None
-        
 
         # Stream LangGraph state updates as each node completes
         async for mode, data in self.graph.astream(
@@ -325,7 +324,6 @@ class Agent:
             },
             stream_mode=["updates", "custom"],
         ):
-
             # Handle workflow interruption for human approval
             if mode == "updates" and "__interrupt__" in data:
                 interrupts = data["__interrupt__"]
@@ -353,26 +351,33 @@ class Agent:
 
                 continue
 
-        
+            # Capture the final assistant answer from the final node update
+            if mode == "updates" and "final" in data:
+                final_update = data["final"]
+
+                messages = final_update.get("messages", [])
+
+                if messages:
+                    final_answer = messages[-1]["content"]
+
             # Convert the internal LangGraph update into a public stream event
             event = map_stream_chunk(data)
-
-            # Save the final assistant answer to the conversation history
-            if final_answer:
-                self.messages.append(
-                    {
-                        "role": "assistant",
-                        "content": final_answer,
-                    }
-                )
-
-                # Trim old conversation messages
-                self._trim_messages()            
 
             # Ignore internal workflow updates that are not part of the public API
             if event is not None:
                 yield event
 
+        # Save the final assistant answer only after streaming completes
+        if final_answer is not None:
+            self.messages.append(
+                {
+                    "role": "assistant",
+                    "content": final_answer,
+                }
+            )
+
+            # Trim old conversation messages
+            self._trim_messages()
 
     def _build_initial_state(
         self,
