@@ -147,7 +147,7 @@ jobs:
 
             sleep 5
 
-            if curl --fail --silent http://localhost:8000/health-test-fail > /dev/null; then
+            if curl --fail --silent http://localhost:8000/health > /dev/null; then
               echo "Rollback successful: $PREVIOUS_TAG"
             else
               echo "Rollback failed"
