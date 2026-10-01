@@ -58,11 +58,13 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
+            -t ghcr.io/blankeagle/day03-agent:${{ github.sha }} \
             -t ghcr.io/blankeagle/day03-agent:latest \
             .
 
       - name: Push Docker image
         run: |
+          docker push ghcr.io/blankeagle/day03-agent:${{ github.sha }}
           docker push ghcr.io/blankeagle/day03-agent:latest
 
   deploy:
@@ -89,4 +91,25 @@ jobs:
           docker compose -f compose.prod.yml pull
           docker compose -f compose.prod.yml up -d
           docker compose -f compose.prod.yml ps
+
+          echo "Waiting for application to become healthy..."
+
+          for i in {1..10}; do
+            if curl --fail --silent http://localhost:8000/health; then
+              echo
+              echo "Application is healthy"
+              break
+            fi
+
+            if [ "$i" -eq 10 ]; then
+              echo "Health check failed"
+              docker compose -f compose.prod.yml logs agent
+              exit 1
+            fi
+
+            echo "Attempt $i failed, retrying in 3 seconds..."
+            sleep 3
+          done
+
+          echo "Deployment successful"
           EOF
