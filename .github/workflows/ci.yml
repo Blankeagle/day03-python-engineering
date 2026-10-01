@@ -10,6 +10,9 @@ on:
       - main
 
 jobs:
+  # ============================================================
+  # 1. Run automated tests
+  # ============================================================
   test:
     runs-on: ubuntu-latest
 
@@ -36,9 +39,15 @@ jobs:
         run: uv run pytest -m "not manual and not integration and not eval" -q
 
 
+  # ============================================================
+  # 2. Build Docker image and push it to GHCR
+  # ============================================================
   build-and-push:
     needs: test
+
+    # Only build and push when code is pushed to main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     runs-on: ubuntu-latest
 
     permissions:
@@ -68,28 +77,47 @@ jobs:
           docker push ghcr.io/blankeagle/day03-agent:${{ github.sha }}
           docker push ghcr.io/blankeagle/day03-agent:latest
 
+
+  # ============================================================
+  # 3. Deploy the exact image version to EC2
+  # ============================================================
   deploy:
     needs: build-and-push
+
+    # Only deploy pushes to main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ----------------------------------------------------------
+      # Configure SSH connection
+      # ----------------------------------------------------------
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
+
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+
           chmod 600 ~/.ssh/ec2_key
+
           ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
+      # ----------------------------------------------------------
+      # Copy the latest production Compose configuration to EC2
+      # ----------------------------------------------------------
       - name: Copy compose file to EC2
         run: |
           scp -i ~/.ssh/ec2_key \
             compose.prod.yml \
             "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/day03-agent/compose.prod.yml"
 
+      # ----------------------------------------------------------
+      # Deploy application
+      # ----------------------------------------------------------
       - name: Deploy to EC2
         run: |
           ssh -i ~/.ssh/ec2_key \
@@ -100,61 +128,214 @@ jobs:
 
           cd ~/day03-agent
 
-          echo "Deploying image: $IMAGE_TAG"
+          echo "========================================"
+          echo "Deploying image"
+          echo "IMAGE_TAG=$IMAGE_TAG"
+          echo "========================================"
 
-          # Read the previous successful image tag if it exists
+
+          # ======================================================
+          # Read the previous successful image
+          # ======================================================
+
           PREVIOUS_TAG=""
+
           if [ -f .last_good_image ]; then
             PREVIOUS_TAG=$(cat .last_good_image)
-            echo "Previous successful image: $PREVIOUS_TAG"
+
+            echo "Previous successful image:"
+            echo "$PREVIOUS_TAG"
+          else
+            echo "No previous successful image recorded."
           fi
 
-          # Deploy the new image
-          IMAGE_TAG=$IMAGE_TAG docker compose -f compose.prod.yml pull
-          IMAGE_TAG=$IMAGE_TAG docker compose -f compose.prod.yml up -d
+
+          # ======================================================
+          # Pull the new Docker image
+          # ======================================================
+
+          echo "Pulling new image..."
+
+          IMAGE_TAG=$IMAGE_TAG \
+            docker compose -f compose.prod.yml pull
+
+
+          # ======================================================
+          # Start the new version
+          # ======================================================
+
+          echo "Starting new version..."
+
+          IMAGE_TAG=$IMAGE_TAG \
+            docker compose -f compose.prod.yml up -d
+
+
+          # ======================================================
+          # Health check for the new version
+          # ======================================================
 
           echo "Waiting for application to become healthy..."
 
           HEALTHY=false
 
           for i in {1..10}; do
-            if curl --fail --silent http://localhost:8000/health-test-fail > /dev/null; then
+
+            # ----------------------------------------------------
+            # IMPORTANT:
+            #
+            # This URL is intentionally wrong so that we can test
+            # the automatic rollback mechanism.
+            #
+            # After rollback testing succeeds, change:
+            #
+            # /health-test-fail
+            #
+            # back to:
+            #
+            # /health
+            # ----------------------------------------------------
+
+            if curl \
+              --fail \
+              --silent \
+              http://localhost:8000/health-test-fail \
+              > /dev/null; then
+
               HEALTHY=true
-              echo "Application is healthy"
+
+              echo "Application is healthy."
+
               break
             fi
 
-            echo "Attempt $i failed, retrying in 3 seconds..."
+            echo "Health check attempt $i failed."
+            echo "Retrying in 3 seconds..."
+
             sleep 3
           done
 
+
+          # ======================================================
+          # Deployment succeeded
+          # ======================================================
+
           if [ "$HEALTHY" = "true" ]; then
+
             echo "$IMAGE_TAG" > .last_good_image
-            echo "Deployment successful: $IMAGE_TAG"
+
+            echo "========================================"
+            echo "Deployment successful"
+            echo "IMAGE_TAG=$IMAGE_TAG"
+            echo "========================================"
+
             exit 0
           fi
 
-          echo "Deployment failed."
 
-          # Show logs from the failed deployment
-          IMAGE_TAG=$IMAGE_TAG docker compose -f compose.prod.yml logs --tail=100 agent
+          # ======================================================
+          # Deployment failed
+          # ======================================================
 
-          # Roll back if a previous successful image exists
+          echo "========================================"
+          echo "Deployment failed"
+          echo "IMAGE_TAG=$IMAGE_TAG"
+          echo "========================================"
+
+
+          # Show logs from the failed version
+          IMAGE_TAG=$IMAGE_TAG \
+            docker compose \
+            -f compose.prod.yml \
+            logs \
+            --tail=100 \
+            agent
+
+
+          # ======================================================
+          # Rollback
+          # ======================================================
+
           if [ -n "$PREVIOUS_TAG" ]; then
-            echo "Rolling back to: $PREVIOUS_TAG"
 
-            IMAGE_TAG=$PREVIOUS_TAG docker compose -f compose.prod.yml up -d
+            echo "========================================"
+            echo "Rolling back"
+            echo "PREVIOUS_TAG=$PREVIOUS_TAG"
+            echo "========================================"
 
-            sleep 5
 
-            if curl --fail --silent http://localhost:8000/health > /dev/null; then
-              echo "Rollback successful: $PREVIOUS_TAG"
-            else
+            # Start the previous successful image
+            IMAGE_TAG=$PREVIOUS_TAG \
+              docker compose \
+              -f compose.prod.yml \
+              up -d
+
+
+            # ====================================================
+            # Health check for rollback version
+            # ====================================================
+
+            echo "Waiting for rollback version to become healthy..."
+
+            ROLLBACK_HEALTHY=false
+
+            for i in {1..10}; do
+
+              if curl \
+                --fail \
+                --silent \
+                http://localhost:8000/health \
+                > /dev/null; then
+
+                ROLLBACK_HEALTHY=true
+
+                echo "Rollback successful: $PREVIOUS_TAG"
+
+                break
+              fi
+
+              echo "Rollback health check attempt $i failed."
+              echo "Retrying in 3 seconds..."
+
+              sleep 3
+            done
+
+
+            # ====================================================
+            # Rollback itself failed
+            # ====================================================
+
+            if [ "$ROLLBACK_HEALTHY" != "true" ]; then
+
+              echo "========================================"
               echo "Rollback failed"
+              echo "========================================"
+
+              IMAGE_TAG=$PREVIOUS_TAG \
+                docker compose \
+                -f compose.prod.yml \
+                logs \
+                --tail=100 \
+                agent
+
             fi
+
           else
-            echo "No previous successful image available for rollback"
+
+            echo "========================================"
+            echo "No previous successful image available."
+            echo "Cannot rollback."
+            echo "========================================"
+
           fi
 
+
+          # ======================================================
+          # The new deployment failed.
+          #
+          # Even if rollback succeeds, this GitHub Actions job
+          # should still be marked as failed.
+          # ======================================================
+
           exit 1
+
           EOF
