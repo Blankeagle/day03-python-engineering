@@ -24,6 +24,7 @@ class DeepSeekClient:
     async def chat(
         self,
         messages: list[dict],
+        format: str | None = None,
     ) -> str:
         url = f"{self.base_url}/chat/completions"
 
@@ -32,6 +33,10 @@ class DeepSeekClient:
             "messages": messages,
             "stream": False,
         }
+        if format == "json":
+            payload["response_format"] = {
+                "type": "json_object"
+            }
 
         try:
             response = await self.client.post(
