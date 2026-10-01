@@ -35,4 +35,5 @@ dev = [
 asyncio_default_test_loop_scope = "session"
 markers = [
     "eval: runs real agent evaluation tests that may call external model services",
+    "manual: tests that require real external services",
 ]
