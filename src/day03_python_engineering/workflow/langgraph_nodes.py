@@ -257,7 +257,10 @@ def create_planner_node(
             format=PlanResult.model_json_schema(),
         )
 
-        content = response["message"]["content"]
+        if isinstance(response, str):
+            content = response
+        else:
+            content = response["message"]["content"]
 
         plan_result = PlanResult.model_validate_json(content)
 
