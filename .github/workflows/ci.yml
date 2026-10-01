@@ -102,29 +102,59 @@ jobs:
 
           echo "Deploying image: $IMAGE_TAG"
 
+          # Read the previous successful image tag if it exists
+          PREVIOUS_TAG=""
+          if [ -f .last_good_image ]; then
+            PREVIOUS_TAG=$(cat .last_good_image)
+            echo "Previous successful image: $PREVIOUS_TAG"
+          fi
+
+          # Deploy the new image
           IMAGE_TAG=$IMAGE_TAG docker compose -f compose.prod.yml pull
           IMAGE_TAG=$IMAGE_TAG docker compose -f compose.prod.yml up -d
 
-          docker compose -f compose.prod.yml ps
-
           echo "Waiting for application to become healthy..."
 
+          HEALTHY=false
+
           for i in {1..10}; do
-            if curl --fail --silent http://localhost:8000/health; then
-              echo
+            if curl --fail --silent http://localhost:8000/health-test-fail > /dev/null; then
+              HEALTHY=true
               echo "Application is healthy"
               break
-            fi
-
-            if [ "$i" -eq 10 ]; then
-              echo "Health check failed"
-              docker compose -f compose.prod.yml logs agent
-              exit 1
             fi
 
             echo "Attempt $i failed, retrying in 3 seconds..."
             sleep 3
           done
 
-          echo "Deployment successful: $IMAGE_TAG"
+          if [ "$HEALTHY" = "true" ]; then
+            echo "$IMAGE_TAG" > .last_good_image
+            echo "Deployment successful: $IMAGE_TAG"
+            exit 0
+          fi
+
+          echo "Deployment failed."
+
+          # Show logs from the failed deployment
+          IMAGE_TAG=$IMAGE_TAG docker compose -f compose.prod.yml logs --tail=100 agent
+
+          # Roll back if a previous successful image exists
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "Rolling back to: $PREVIOUS_TAG"
+
+            IMAGE_TAG=$PREVIOUS_TAG docker compose -f compose.prod.yml up -d
+
+            sleep 5
+
+            if curl --fail --silent http://localhost:8000/health-test-fail > /dev/null; then
+              echo "Rollback successful: $PREVIOUS_TAG"
+            else
+              echo "Rollback failed"
+            fi
+          else
+            echo "No previous successful image available for rollback"
+          fi
+
+          exit 1
           EOF
