@@ -10,6 +10,7 @@ from day03_python_engineering.api.dependencies import (
 from day03_python_engineering.mcp.provider import (
     MCPToolProvider,
 )
+pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
