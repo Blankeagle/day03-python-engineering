@@ -12,6 +12,7 @@ from day03_python_engineering.agent.agent import Agent
 from day03_python_engineering.config import settings
 from day03_python_engineering.session.manager import SessionManager
 from day03_python_engineering.llm.ollama_client import OllamaClient
+from day03_python_engineering.llm.deepseek_client import DeepSeekClient
 from day03_python_engineering.tools.registry import ToolRegistry
 from day03_python_engineering.session.redis_store import RedisSessionStore
 from day03_python_engineering.tools.weather_tool import (
@@ -107,7 +108,28 @@ def create_tool_registry() -> ToolRegistry:
 
 
 
-_ollama_client = OllamaClient()
+def create_llm_client():
+    if settings.llm_provider == "deepseek":
+        if not settings.deepseek_api_key:
+            raise RuntimeError(
+                "DEEPSEEK_API_KEY is required when LLM_PROVIDER=deepseek"
+            )
+
+        return DeepSeekClient(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+            model_name=settings.model_name,
+        )
+
+    if settings.llm_provider == "ollama":
+        return OllamaClient()
+
+    raise ValueError(
+        f"Unsupported LLM provider: {settings.llm_provider}"
+    )
+
+
+_llm_client = create_llm_client()
 _weather_client = httpx.AsyncClient(
     timeout=httpx.Timeout(
         connect=3.0,
@@ -134,7 +156,7 @@ _retriever = Retriever(
 
 _rag_service = RAGService(
     retriever=_retriever,
-    llm_client=_ollama_client,
+    llm_client=_llm_client,
 )
 
 
@@ -169,7 +191,7 @@ _indexer = DocumentIndexer(
 _memory_store = RedisMemoryStore()
 
 _memory_extractor = MemoryExtractor(
-    llm_client=_ollama_client,
+    llm_client=_llm_client,
 )
 
 _memory_service = MemoryService(
@@ -203,7 +225,7 @@ def create_agent(
     )
 
     return Agent(
-        client=_ollama_client,
+        client=_llm_client,
         registry=active_registry,
         checkpointer=checkpointer,
         tool_groups=tool_groups,
@@ -213,7 +235,7 @@ def create_agent(
 
 async def close_dependencies():
     await _embedding_client.close()
-    await _ollama_client.close()
+    await _llm_client.close()
     await _weather_client.aclose()
     await _redis_store.close()
     await _memory_store.close()

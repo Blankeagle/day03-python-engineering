@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     embedding_max_concurrency: int = 5
     langgraph_redis_url: str = "redis://localhost:6380"
 
+    llm_provider: str = "ollama"
+
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
