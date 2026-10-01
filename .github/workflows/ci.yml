@@ -35,7 +35,7 @@ jobs:
       - name: Run tests
         run: uv run pytest -m "not manual and not integration and not eval" -q
 
-    build-and-push:
+  build-and-push:
     needs: test
     runs-on: ubuntu-latest
 
