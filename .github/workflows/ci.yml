@@ -1,17 +1,12 @@
-name: CI
-
-on:
-  push:
-    branches:
-      - main
-
-  pull_request:
-    branches:
-      - main
-
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    env:
+      APP_NAME: "Day03 Agent CI"
+      DEBUG: "false"
+      OLLAMA_BASE_URL: "http://localhost:11434"
+      MODEL_NAME: "qwen3:8b"
 
     steps:
       - name: Checkout repository
