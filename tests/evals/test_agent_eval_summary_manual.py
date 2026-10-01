@@ -9,7 +9,7 @@ from day03_python_engineering.evaluation.evaluator import (
 from day03_python_engineering.evaluation.models import EvalResult
 
 from tests.evals.cases import EVAL_CASES
-
+pytestmark = pytest.mark.manual
 
 @pytest.mark.asyncio
 @pytest.mark.eval

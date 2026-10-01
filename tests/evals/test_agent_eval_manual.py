@@ -5,7 +5,7 @@ from day03_python_engineering.api.dependencies import create_agent
 from day03_python_engineering.evaluation.evaluator import evaluate_trace
 
 from tests.evals.cases import EVAL_CASES
-
+pytestmark = pytest.mark.manual
 
 @pytest.mark.asyncio
 @pytest.mark.eval

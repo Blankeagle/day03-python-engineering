@@ -4,6 +4,7 @@ from day03_python_engineering.agent.stream_event import AgentStreamEvent
 
 from day03_python_engineering.api.dependencies import create_agent
 
+pytestmark = pytest.mark.manual
 
 @pytest.mark.asyncio
 async def test_agent_stream_manual():

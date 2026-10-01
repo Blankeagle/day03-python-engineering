@@ -1,7 +1,7 @@
 import pytest
 
 from day03_python_engineering.llm.ollama_client import OllamaClient
-
+pytestmark = pytest.mark.manual
 
 @pytest.mark.asyncio
 async def test_ollama_stream_manual():
