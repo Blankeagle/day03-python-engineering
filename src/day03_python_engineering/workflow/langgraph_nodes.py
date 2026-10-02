@@ -158,12 +158,13 @@ def create_tool_node(
                 )
 
             # Add the tool result to the conversation history
-            messages.append(
-                {
-                    "role": "tool",
-                    "content": result.model_dump_json(),
-                }
-            )
+            tool_message = {
+                "role": "tool",
+                "content": result.model_dump_json(),
+            }
+            if tool_call.get("id"):
+                tool_message["tool_call_id"] = tool_call["id"]
+            messages.append(tool_message)
 
         # Record the completion of the tool node
         state["trace"].add_event(
